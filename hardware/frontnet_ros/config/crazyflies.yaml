@@ -2,7 +2,6 @@
 robots:
   cf18:
     enabled: true
-
     uri: radio://0/80/2M/E7E7E7E712    ## CHANGED!
     initial_position: [0.0, 0.0, 0.0] #z=0.15
     type: cf21  # see robot_types
@@ -38,7 +37,7 @@ robots:
   cf4:
     enabled: true
     uri: radio://0/80/2M/E7E7E7E704
-    initial_position: [0.0, -1.0, 0.3]
+    initial_position: [0.5, -0.5, 0.3]
     type: cf21_betafpv  # see robot_types
     firmware_params:
       stabilizer:
@@ -83,7 +82,7 @@ robot_types:
     motion_capture:
       enabled: true
       # only if enabled; see motion_capture.yaml
-      marker: default_single_marker  # mocap_deck  # 
+      marker: default_single_marker  #   #
       dynamics: default
     big_quad: false
     battery:
