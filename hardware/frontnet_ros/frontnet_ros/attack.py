@@ -50,7 +50,9 @@ class Attack():
                 f'cf{self.victim_id}/pose',
                 partial(self.pose_callback, "v"),
                 10)
+
         
+
         self.cf_a = self.swarm.allcfs.crazyfliesById[self.attacker_id]
         self.cf_v = self.swarm.allcfs.crazyfliesById[self.victim_id]
 
@@ -174,10 +176,11 @@ class Attack():
 
         traj = Trajectory()
         # change path if needed!
-        traj.loadcsv("/home/demo/ros2_ws/src/frontnet_ros/data/movey.csv")
+        traj.loadcsv("/home/demo/ros2_ws/src/frontnet_ros/data/movex.csv")
 
         self.node.takeoff(targetHeight=1.0, duration=3.0)
-        self.timeHelper.sleep(7.0)
+        self.timeHelper.sleep(2.0)
+        print("after takeoff and wait")
 
         while True:
             if self.pose_a is not None and self.pose_v is not None:
@@ -185,7 +188,8 @@ class Attack():
             self.timeHelper.sleep(0.1)
 
         # turn victim by -90° to face the white wall in our lab
-        self.cf_v.goTo(np.array([0.0, 0.0, 1.0]), -np.pi/2., 2.)
+        print("trying to rotate")
+        self.cf_v.goTo(np.array([0.0, -1.5, 1.0]), 0., 2.)
         self.timeHelper.sleep(3.)
 
         start_time = self.timeHelper.time()

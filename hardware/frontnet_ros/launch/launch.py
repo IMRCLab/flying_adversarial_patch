@@ -93,7 +93,8 @@ def generate_launch_description():
         Node(
             package='joy',
             executable='joy_node',
-            name='joy_node' # by default id=0
+            name='joy_node', # by default id=0
+            # parameters=[{'device_id':1}] # new joystick
         ),
         Node(
             package='crazyflie',
@@ -121,16 +122,16 @@ def generate_launch_description():
             emulate_tty=True,
             parameters=server_params
         ),
-        Node(
-            package='rviz2',
-            namespace='',
-            executable='rviz2',
-            name='rviz2',
-            arguments=['-d' + rviz_config],
-            parameters=[{
-                "use_sim_time": True,
-            }]
-        ),
+        # Node(
+        #     package='rviz2',
+        #     namespace='',
+        #     executable='rviz2',
+        #     name='rviz2',
+        #     arguments=['-d' + rviz_config],
+        #     parameters=[{
+        #         "use_sim_time": True,
+        #     }]
+        # ),
         Node(
             package='frontnet_ros',
             namespace='',
