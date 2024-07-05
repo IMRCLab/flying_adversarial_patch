@@ -26,17 +26,17 @@ def get_transformation(sf, tx, ty):
     # M[..., 1, 2] = ty
     return transformation_matrix.float()
 
-def norm_transformation(sf, tx, ty, scale_min=0.3, scale_max=0.5, tx_min=-40., tx_max=100., ty_min=-20., ty_max=70.):
+def norm_transformation(sf, tx, ty, scale_min=0.3, scale_max=0.5, tx_min=-10., tx_max=100., ty_min=-10., ty_max=80.):
     # tx_tanh = torch.tanh(tx) #* 0.8
     # ty_tanh = torch.tanh(ty) #* 0.8
 
-    # new patch placement implementation might need different tx, ty limits:
-    # tx_norm = (tx_max - tx_min) * (torch.tanh(tx) + 1) * 0.5 + tx_min
-    # ty_norm = (ty_max - ty_min) * (torch.tanh(ty) + 1) * 0.5 + ty_min
+    # new patch placement implementation might need different tx, ty limits!:
+    tx_norm = (tx_max - tx_min) * (torch.tanh(tx) + 1) * 0.5 + tx_min
+    ty_norm = (ty_max - ty_min) * (torch.tanh(ty) + 1) * 0.5 + ty_min
 
     scaling_norm = (scale_max - scale_min) * (torch.tanh(sf) + 1) * 0.5 + scale_min # normalizes scaling factor to range [0.3, 0.5]
 
-    return scaling_norm, tx, ty
+    return scaling_norm, tx_norm, ty_norm
 
 # def get_rotation(yaw, pitch, roll):
 #     rotation_yaw = np.array([[np.cos(yaw), -np.sin(yaw), 0.0, 0.0],
@@ -61,8 +61,8 @@ def gen_noisy_transformations(batch_size, sf, tx, ty, scale_min=0.3, scale_max=0
     noisy_transformation_matrix = []
     for i in range(batch_size):
         sf_n = sf + np.random.normal(0.0, 0.1)
-        tx_n = tx + np.random.normal(0.0, 10.0)
-        ty_n = ty + np.random.normal(0.0, 10.0)
+        tx_n = tx + np.random.normal(0.0, 0.1)
+        ty_n = ty + np.random.normal(0.0, 0.1)
 
         scale_norm, tx_norm, ty_norm = norm_transformation(sf_n, tx_n, ty_n, scale_min, scale_max)
         matrix = get_transformation(scale_norm, tx_norm, ty_norm)
@@ -552,11 +552,11 @@ if __name__=="__main__":
     stats_all = []
     stats_p_all = []
 
-    #positions = torch.FloatTensor(len(targets), num_patches, 3, 1).uniform_(-1., 1.).to(device)
-    sf = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
-    tx = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-10, 80.).to(device)
-    ty = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-10, 80.).to(device)
-    positions = torch.stack([sf, tx, ty]).moveaxis(0, 2)
+    positions = torch.FloatTensor(len(targets), num_patches, 3, 1).uniform_(-1., 1.).to(device)
+    # sf = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
+    # tx = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
+    # ty = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
+    # positions = torch.stack([sf, tx, ty]).moveaxis(0, 2)
 
     optimization_pos_vectors.append(positions)
 
