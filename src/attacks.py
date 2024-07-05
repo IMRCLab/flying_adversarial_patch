@@ -474,6 +474,7 @@ if __name__=="__main__":
     time_start = time()
     parser = argparse.ArgumentParser()
     parser.add_argument('--file', default='settings.yaml')
+    parser.add_argument('--task')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -485,9 +486,7 @@ if __name__=="__main__":
 
     # save settings directly to result folder for later use
     path = Path(settings['path'])
-    os.makedirs(path, exist_ok = True)
-    with open(path / 'settings.yaml', 'w') as f:
-        yaml.dump(settings, f)
+    
 
     lr_pos = settings['lr_pos']
     lr_patch = settings['lr_patch']
@@ -507,9 +506,22 @@ if __name__=="__main__":
     stlc_weights = [o['weight'] if 'weight' in o else 1.0 for o in settings['stlc']['offsets']]
 
     # get target values in correct shape and move tensor to device
-    targets = [values for _, values in settings['targets'].items()]
-    targets = np.array(targets, dtype=float).T
-    targets = torch.from_numpy(targets).to(device).float()
+    # targets = [values for _, values in settings['targets'].items()]
+    # targets = np.array(targets, dtype=float).T
+    num_targets = np.random.randint(1, 4)
+    targets = [np.random.uniform([0, -1, -0.5], [2, 1, 0.5], (3,)) for _ in range(num_targets)]
+
+    settings['targets']['x'] = [t[0].item() for t in targets]
+    settings['targets']['y'] = [t[1].item() for t in targets]
+    settings['targets']['z'] = [t[2].item() for t in targets]
+
+    os.makedirs(path, exist_ok = True)
+    with open(path / f'settings_{args.task}.yaml', 'w') as f:
+        yaml.dump(settings, f)
+
+    targets = torch.from_numpy(np.array(targets)).to(device).float()
+
+    print("targets", targets)
 
     if len(targets.shape) < 2.:
         targets = targets.unsqueeze(0)
@@ -716,6 +728,7 @@ if __name__=="__main__":
     all_ty = torch.stack([norm_optimized_vecs[i][2] for i in range(len(norm_optimized_vecs))])
 
 
+    print('shape', np.shape(optimization_patches))
     # save all results in numpy arrays for later use
     np.save(path / 'patches.npy', optimization_patches.cpu().numpy())
     np.save(path / 'patch_losses.npy', optimization_patch_losses.cpu().numpy())
@@ -724,6 +737,18 @@ if __name__=="__main__":
     np.save(path / 'position_losses.npy', optimization_pos_losses.cpu().numpy())
     np.save(path / 'losses_train.npy', train_losses.cpu().numpy())
     np.save(path / 'losses_test.npy', test_losses.cpu().numpy())
+
+
+    # np.save(path / f'positions_{args.task}.npy', optimization_pos_vectors.cpu().numpy())
+    # np.save(path / f'positions_norm_{args.task}.npy', np.array([all_sf.cpu().numpy(), all_tx.cpu().numpy(), all_ty.cpu().numpy()]))
+
+    # last_pos = np.array([x.cpu().numpy() for x in norm_optimized_vecs[-1]])
+    # np.save(path / f'position_norm_{args.task}.npy', last_pos)
+    # print("last_pos", last_pos, np.shape(last_pos))
+
+    # np.save(path / f'position_losses_{args.task}.npy', optimization_pos_losses.cpu().numpy())
+    # np.save(path / f'losses_train_{args.task}.npy', train_losses.cpu().numpy())
+    # np.save(path / f'losses_test_{args.task}.npy', test_losses.cpu().numpy())
 
     np.save(path / 'stats.npy', stats_all)
     np.save(path / 'stats_p.npy', stats_p_all)
@@ -780,7 +805,7 @@ if __name__=="__main__":
     #     boxplot_data.append(torch.stack([loss_base.detach().cpu(), loss_start_patch_best.detach().cpu(), loss_opt_patch_best.detach().cpu()]))
 
 
-    # np.save(path / 'boxplot_data.npy', torch.stack(boxplot_data).cpu().numpy())
+    np.save(path / 'boxplot_data.npy', torch.stack(boxplot_data).cpu().numpy())
 
     # # STLC Analysis
     # for target_idx, target in enumerate(targets):
@@ -800,5 +825,5 @@ if __name__=="__main__":
     #             loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
     #             print("STLC", target_offset.detach().cpu().numpy(), torch.mean(loss_opt_patch).detach().cpu().numpy())
 
-    # from plots import plot_results
-    # plot_results(path)
+    from plots import plot_results
+    plot_results(path, targets)
