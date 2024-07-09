@@ -676,85 +676,85 @@ if __name__=="__main__":
 
     # save all results in numpy arrays for later use
     np.save(path / 'patches.npy', optimization_patches.cpu().numpy())
-    np.save(path / 'patch_losses.npy', optimization_patch_losses.cpu().numpy())
+    # np.save(path / 'patch_losses.npy', optimization_patch_losses.cpu().numpy())
     # np.save(path / 'positions.npy', optimization_pos_vectors.cpu().numpy())
     np.save(path / 'positions_norm.npy', np.array([all_sf.cpu().numpy(), all_tx.cpu().numpy(), all_ty.cpu().numpy()]))
-    np.save(path / 'position_losses.npy', optimization_pos_losses.cpu().numpy())
-    np.save(path / 'losses_train.npy', train_losses.cpu().numpy())
-    np.save(path / 'losses_test.npy', test_losses.cpu().numpy())
+    # np.save(path / 'position_losses.npy', optimization_pos_losses.cpu().numpy())
+    # np.save(path / 'losses_train.npy', train_losses.cpu().numpy())
+    # np.save(path / 'losses_test.npy', test_losses.cpu().numpy())
 
     np.save(path / 'stats.npy', stats_all)
     np.save(path / 'stats_p.npy', stats_p_all)
 
-    # final evaluation on test set
-    print("Evaluation...")
+    # # final evaluation on test set
+    # print("Evaluation...")
 
-    test_batch, test_gt = test_set.dataset[:]
-    test_batch = test_batch.to(device) / 255. # limit images to range [0-1]
+    # test_batch, test_gt = test_set.dataset[:]
+    # test_batch = test_batch.to(device) / 255. # limit images to range [0-1]
 
-    boxplot_data = []
-    #target_mask = torch.tensor(target_mask).to(patch.device)
-    for target_idx, target in enumerate(targets):
-        pred_base = model(test_batch.float() * 255.)
-        pred_base = torch.stack(pred_base[:3]).squeeze(2).mT
-        target_batch = target.repeat(len(test_batch), 1)
-        target_batch = torch.where(torch.isnan(target_batch), pred_base, target_batch)
-        loss_base = torch.tensor([mse_loss(target_batch[i], pred_base[i]) for i in range(len(test_batch))])
+    # boxplot_data = []
+    # #target_mask = torch.tensor(target_mask).to(patch.device)
+    # for target_idx, target in enumerate(targets):
+    #     pred_base = model(test_batch.float() * 255.)
+    #     pred_base = torch.stack(pred_base[:3]).squeeze(2).mT
+    #     target_batch = target.repeat(len(test_batch), 1)
+    #     target_batch = torch.where(torch.isnan(target_batch), pred_base, target_batch)
+    #     loss_base = torch.tensor([mse_loss(target_batch[i], pred_base[i]) for i in range(len(test_batch))])
 
-        loss_start_patch_best = None
-        loss_start_patch_best_value = np.inf
-        loss_opt_patch_best = None
-        loss_opt_patch_best_value = np.inf
-        for patch_idx in range(num_patches):
-            scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
-            transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(device)
+    #     loss_start_patch_best = None
+    #     loss_start_patch_best_value = np.inf
+    #     loss_opt_patch_best = None
+    #     loss_opt_patch_best_value = np.inf
+    #     for patch_idx in range(num_patches):
+    #         scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
+    #         transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(device)
 
-            mod_img = place_patch(test_batch, patch_start[patch_idx:patch_idx+1], transformation_matrix)
-            mod_img *= 255. # convert input images back to range [0-255.]
-            mod_img.clamp_(0., 255.)
-            pred_start_patch = model(mod_img.float())
-            pred_start_patch = torch.stack(pred_start_patch[:3]).squeeze(2).mT
-            target_batch = target.repeat(len(test_batch), 1)
-            target_batch = torch.where(torch.isnan(target_batch), pred_start_patch, target_batch)
-            loss_start_patch = torch.tensor([mse_loss(target_batch[i], pred_start_patch[i]) for i in range(len(test_batch))])
-            if torch.sum(loss_start_patch) < loss_start_patch_best_value:
-                loss_start_patch_best_value = torch.sum(loss_start_patch)
-                loss_start_patch_best = loss_start_patch
+    #         mod_img = place_patch(test_batch, patch_start[patch_idx:patch_idx+1], transformation_matrix)
+    #         mod_img *= 255. # convert input images back to range [0-255.]
+    #         mod_img.clamp_(0., 255.)
+    #         pred_start_patch = model(mod_img.float())
+    #         pred_start_patch = torch.stack(pred_start_patch[:3]).squeeze(2).mT
+    #         target_batch = target.repeat(len(test_batch), 1)
+    #         target_batch = torch.where(torch.isnan(target_batch), pred_start_patch, target_batch)
+    #         loss_start_patch = torch.tensor([mse_loss(target_batch[i], pred_start_patch[i]) for i in range(len(test_batch))])
+    #         if torch.sum(loss_start_patch) < loss_start_patch_best_value:
+    #             loss_start_patch_best_value = torch.sum(loss_start_patch)
+    #             loss_start_patch_best = loss_start_patch
 
-            mod_img = place_patch(test_batch, patch[patch_idx:patch_idx+1], transformation_matrix)
-            mod_img *= 255. # convert input images back to range [0-255.]
-            mod_img.clamp_(0., 255.)
-            pred_opt_patch = model(mod_img.float())
-            pred_opt_patch = torch.stack(pred_opt_patch[:3]).squeeze(2).mT
-            target_batch = target.repeat(len(test_batch), 1)
-            target_batch = torch.where(torch.isnan(target_batch), pred_opt_patch, target_batch)
-            loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
-            if torch.sum(loss_opt_patch) < loss_opt_patch_best_value:
-                loss_opt_patch_best_value = torch.sum(loss_opt_patch)
-                loss_opt_patch_best = loss_opt_patch
+    #         mod_img = place_patch(test_batch, patch[patch_idx:patch_idx+1], transformation_matrix)
+    #         mod_img *= 255. # convert input images back to range [0-255.]
+    #         mod_img.clamp_(0., 255.)
+    #         pred_opt_patch = model(mod_img.float())
+    #         pred_opt_patch = torch.stack(pred_opt_patch[:3]).squeeze(2).mT
+    #         target_batch = target.repeat(len(test_batch), 1)
+    #         target_batch = torch.where(torch.isnan(target_batch), pred_opt_patch, target_batch)
+    #         loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
+    #         if torch.sum(loss_opt_patch) < loss_opt_patch_best_value:
+    #             loss_opt_patch_best_value = torch.sum(loss_opt_patch)
+    #             loss_opt_patch_best = loss_opt_patch
 
-        boxplot_data.append(torch.stack([loss_base.detach().cpu(), loss_start_patch_best.detach().cpu(), loss_opt_patch_best.detach().cpu()]))
+    #     boxplot_data.append(torch.stack([loss_base.detach().cpu(), loss_start_patch_best.detach().cpu(), loss_opt_patch_best.detach().cpu()]))
 
 
-    np.save(path / 'boxplot_data.npy', torch.stack(boxplot_data).cpu().numpy())
+    # np.save(path / 'boxplot_data.npy', torch.stack(boxplot_data).cpu().numpy())
 
-    # STLC Analysis
-    for target_idx, target in enumerate(targets):
-        for patch_idx in range(num_patches):
+    # # STLC Analysis
+    # for target_idx, target in enumerate(targets):
+    #     for patch_idx in range(num_patches):
 
-            scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
-            for target_offset, position_offset in zip(stlc_target_offsets, stlc_position_offsets):
-                transformation_matrix = get_transformation(scale_norm + position_offset[0], tx_norm + position_offset[1], ty_norm + position_offset[2]).to(device)
+    #         scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
+    #         for target_offset, position_offset in zip(stlc_target_offsets, stlc_position_offsets):
+    #             transformation_matrix = get_transformation(scale_norm + position_offset[0], tx_norm + position_offset[1], ty_norm + position_offset[2]).to(device)
 
-                mod_img = place_patch(test_batch, patch[patch_idx:patch_idx+1], transformation_matrix)
-                mod_img *= 255. # convert input images back to range [0-255.]
-                mod_img.clamp_(0., 255.)
-                pred_opt_patch = model(mod_img.float())
-                pred_opt_patch = torch.stack(pred_opt_patch[:3]).squeeze(2).mT
-                target_batch = (target + target_offset).repeat(len(test_batch), 1)
-                target_batch = torch.where(torch.isnan(target_batch), pred_opt_patch, target_batch)
-                loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
-                print("STLC", target_offset.detach().cpu().numpy(), torch.mean(loss_opt_patch).detach().cpu().numpy())
+    #             mod_img = place_patch(test_batch, patch[patch_idx:patch_idx+1], transformation_matrix)
+    #             mod_img *= 255. # convert input images back to range [0-255.]
+    #             mod_img.clamp_(0., 255.)
+    #             pred_opt_patch = model(mod_img.float())
+    #             pred_opt_patch = torch.stack(pred_opt_patch[:3]).squeeze(2).mT
+    #             target_batch = (target + target_offset).repeat(len(test_batch), 1)
+    #             target_batch = torch.where(torch.isnan(target_batch), pred_opt_patch, target_batch)
+    #             loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
+    #             print("STLC", target_offset.detach().cpu().numpy(), torch.mean(loss_opt_patch).detach().cpu().numpy())
 
-    from plots import plot_results
-    plot_results(path)
+    # from plots import plot_results
+    # plot_results(path)
