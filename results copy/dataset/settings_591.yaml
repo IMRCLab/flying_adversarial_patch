@@ -1,0 +1,43 @@
+batch_size: 32
+lr_patch: 0.01
+lr_pos: 0.001
+mode: joint
+num_hl_iter: 50
+num_patch_epochs: 1
+num_patches: 1
+num_pos_epochs: 1
+num_pos_restarts: 3
+patch:
+  mode: random
+  path: src/custom_patches/custom_patch_96x160.npy
+  size:
+  - 80
+  - 80
+path: results/dataset
+prob_weight: 1.0
+quantized: false
+scale_max: 0.7
+scale_min: 0.2
+stlc:
+  offsets:
+  - position:
+    - 0
+    - 0
+    - 0
+    target:
+    - 0
+    - 0
+    - 0
+targets:
+  x:
+  - 1.4739179826957771
+  - 0.7890119437490535
+  - 0.8857297807973754
+  y:
+  - -0.47755709081427766
+  - -0.29823968074015905
+  - -0.5923700641750118
+  z:
+  - 0.22942361319445725
+  - -0.18158191442657212
+  - 0.20347970498016577

@@ -14,7 +14,7 @@ stlc: # small-time locally controllability
 lr_pos: 0.001
 lr_patch: 0.01
 prob_weight: 1.0
-num_hl_iter: 10
+num_hl_iter: 50
 num_pos_restarts: 3
 num_pos_epochs: 1
 num_patch_epochs: 1
