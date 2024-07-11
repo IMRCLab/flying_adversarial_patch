@@ -140,6 +140,7 @@ def save_pickle(idx_start=0, idx_end=100):
     best_targets = []
     best_coeffs = []
     for i, (patch, p_targets, p_coeffs) in enumerate(zip(patches, targets, coeffs)):
+        print('on patch ', i)
         losses = []
         patch = torch.tensor(patch, device=device).float().unsqueeze(0).unsqueeze(0)
         Ts = get_Ts(p_coeffs)
@@ -159,8 +160,6 @@ def save_pickle(idx_start=0, idx_end=100):
 
     print(targets.shape)
     print(positions.shape)
-
-            
 
     # out = np.array([get_best_target_pos(patch, path, dataset, model, device) for patch, path in zip(patches, file_paths[idx_start:idx_end+1])])
     # targets, positions = np.split(out, 2, axis=1)

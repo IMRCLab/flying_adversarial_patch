@@ -54,9 +54,9 @@ def loss_dataset(patch, targets, Ts, dataset, sim):
     return np.array(losses)
 
 def test_file():
-    with open('data.pkl', 'rb') as f:
+    with open('all_patches.pkl', 'rb') as f:
         patch_info = pickle.load(f) # deserialize using load()
-        print(patch_info) # print student names
+        print(patch_info) 
 
 def main():
     task_id = 0
@@ -104,4 +104,5 @@ def main():
     print("dumped")
 
 if __name__ == "__main__":
-    main()
+    # main()
+    test_file()
