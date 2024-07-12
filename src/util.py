@@ -226,7 +226,7 @@ def load_dataset(path, batch_size = 32, shuffle = False, drop_last = True, num_w
     data_params = {'batch_size': batch_size, 'shuffle': shuffle, 'drop_last':drop_last, 'num_workers': num_workers}
     data_loader = data.DataLoader(dataset, **data_params)
     
-    return data_loader
+    return (dataset, data_loader)
 
 
 def calc_saliency(img, gt, model):
