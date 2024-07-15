@@ -1,0 +1,30 @@
+path: 'results/dataset'
+# +x is distance
+# +y is left
+# +z is top
+targets:
+  x : [ 1.0, 1.5, 0.5, 2.0, 1.0, 1.0]
+  y : [ 0.0, 0.0, 0.0, 0.0, 1.0, -1.0]
+  z : [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+stlc: # small-time locally controllability
+  offsets:
+    # base
+    - target: [0,0,0]
+      position: [0,0,0]
+lr_pos: 0.001
+lr_patch: 0.01
+prob_weight: 1.0
+num_hl_iter: 50
+num_pos_restarts: 3
+num_pos_epochs: 1
+num_patch_epochs: 1
+batch_size: 32
+num_patches: 1
+scale_min: 0.2
+scale_max: 0.7
+patch: 
+  mode: 'random'  # face, white, random
+  size: [80, 80] # patch size in [height, width]
+  path: 'src/custom_patches/custom_patch_96x160.npy' # if mode == 'face' set a path, otherwise path is ignored
+mode: "joint" # fixed, joint, split, hybrid
+quantized: false
