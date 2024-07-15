@@ -16,18 +16,27 @@ def get_transformation(sf, tx, ty):
     eye = torch.eye(2, 2).unsqueeze(0).to(sf.device)
     scale = eye * sf
 
-    # print(scale.shape, translation_vector.shape)
+    # # print(scale.shape, translation_vector.shape)
 
     transformation_matrix = torch.cat([scale, translation_vector], dim=2)
+    
+    # M = torch.eye(3,3).unsqueeze(0).to(sf.device)
+    # M[..., :2, :2] *= sf
+    # M[..., 0, 2] = tx
+    # M[..., 1, 2] = ty
     return transformation_matrix.float()
 
-def norm_transformation(sf, tx, ty, scale_min=0.3, scale_max=0.5):
-    tx_tanh = torch.tanh(tx) #* 0.8
-    ty_tanh = torch.tanh(ty) #* 0.8
+def norm_transformation(sf, tx, ty, scale_min=0.3, scale_max=0.5, tx_min=-10., tx_max=100., ty_min=-10., ty_max=80.):
+    # tx_tanh = torch.tanh(tx) #* 0.8
+    # ty_tanh = torch.tanh(ty) #* 0.8
+
+    # new patch placement implementation might need different tx, ty limits!:
+    tx_norm = (tx_max - tx_min) * (torch.tanh(tx) + 1) * 0.5 + tx_min
+    ty_norm = (ty_max - ty_min) * (torch.tanh(ty) + 1) * 0.5 + ty_min
 
     scaling_norm = (scale_max - scale_min) * (torch.tanh(sf) + 1) * 0.5 + scale_min # normalizes scaling factor to range [0.3, 0.5]
 
-    return scaling_norm, tx_tanh, ty_tanh
+    return scaling_norm, tx_norm, ty_norm
 
 # def get_rotation(yaw, pitch, roll):
 #     rotation_yaw = np.array([[np.cos(yaw), -np.sin(yaw), 0.0, 0.0],
@@ -127,7 +136,10 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
                         patch_batches = torch.cat([x.repeat(len(batch), 1, 1, 1) for x in patch_t[active_patches]]) # get batch_sized batches of each patch in patches, size should be batch_size*num_patches
                         batch_multi = batch.clone().repeat(len(patch_t[active_patches]), 1, 1, 1)
                         transformations_multi = noisy_transformations.view(len(patch_t[active_patches])*len(batch), 2, 3) # reshape transformation matrices
-                        #print(transformations_multi.shape)
+                        # print("before patch placement:")
+                        # print("transformations shape: ", transformations_multi.shape)
+                        # print("patch batch shape: ", patch_batches.shape)
+                        
 
                         mod_img = place_patch(batch_multi, patch_batches, transformations_multi) 
 
@@ -520,11 +532,13 @@ if __name__=="__main__":
 
     # or start from a random patch
     if settings['patch']['mode'] == 'random':
-        patch_start = torch.rand(num_patches, 1, 96, 160).to(device)
+        size = settings['patch']['size']
+        patch_start = torch.rand(num_patches, 1, size[0], size[1]).to(device)
 
     # or start from a white patch
     if settings['patch']['mode'] == 'white':
-        patch_start = torch.ones(num_patches, 1, 96, 160).to(device)
+        size = settings['patch']['size']
+        patch_start = torch.ones(num_patches, 1, size[0], size[1]).to(device)
 
     optimization_pos_losses = []
     optimization_pos_vectors = []
@@ -539,6 +553,10 @@ if __name__=="__main__":
     stats_p_all = []
 
     positions = torch.FloatTensor(len(targets), num_patches, 3, 1).uniform_(-1., 1.).to(device)
+    # sf = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
+    # tx = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
+    # ty = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
+    # positions = torch.stack([sf, tx, ty]).moveaxis(0, 2)
 
     optimization_pos_vectors.append(positions)
 
@@ -547,7 +565,7 @@ if __name__=="__main__":
     optimization_patches.append(patch.clone())
 
     # assignment: we start by assigning all targets to all patches
-    A = np.ones((num_patches, len(targets)), dtype=np.bool8)
+    A = np.ones((num_patches, len(targets)), dtype=np.bool_)
 
     # # debug
     # A = np.zeros((num_patches, len(targets)), dtype=np.bool8)

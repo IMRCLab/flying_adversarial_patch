@@ -46,6 +46,7 @@ scale_min: 0.2
 scale_max: 0.4
 patch: 
   mode: 'random'  # face, white, random
+  size: [96, 160] # patch size in [height, width]
   path: 'src/custom_patches/custom_patch_96x160.npy' # if mode == 'face' set a path, otherwise path is ignored
 mode: "joint" # fixed, joint, split, hybrid
 quantized: true
