@@ -153,9 +153,14 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
                         mod_img.clamp_(0., 255.)
 
                         # predict x, y, z, yaw
-                        # x, y, z, phi = model(mod_img)
-                        results = model(mod_img)
-                        results = results.pandas().xyxy[0].to_dict(orient="records")
+                        x, y, z, phi = model(mod_img)
+                        print(x, y, z)
+                        print(type(x), type(y), type(z))
+                        # results = model(mod_img).xyxy[0]
+                        # results = results.pandas().xyxy[0].to_dict(orient="records")
+                        # for data in results:
+                        #     if data[5] == 0: # this is a person
+                        #          xmin, ymin, xmax, ymax = data[:4]
 
                         # target_losses.append(torch.mean(all_l2))
                         # prepare shapes for MSE loss
@@ -533,21 +538,21 @@ if __name__=="__main__":
 
     # model = load_model(path=model_path, device=device, config=model_config)
     # model.eval()
-    # print("Loading quantized network? ", quantized)
-    # if not quantized:
-    #     # load full-precision network
-    #     from util import load_model
-    #     model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
-    #     model_config = '160x32'
-    #     model = load_model(path=model_path, device=device, config=model_config)
-    # else:
-    #     # load quantized network
-    #     from util import load_quantized
-    #     model_path = 'misc/Frontnet.onnx'
-    #     model = load_quantized(path=model_path, device=device)
+    print("Loading quantized network? ", quantized)
+    if not quantized:
+        # load full-precision network
+        from util import load_model
+        model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
+        model_config = '160x32'
+        model = load_model(path=model_path, device=device, config=model_config)
+    else:
+        # load quantized network
+        from util import load_quantized
+        model_path = 'misc/Frontnet.onnx'
+        model = load_quantized(path=model_path, device=device)
     
     # model.eval()
-    model = torch.hub.load("ultralytics/yolov5", "yolov5s")  # Can be 'yolov5n' - 'yolov5x6', or 'custom'
+    # model = torch.hub.load("ultralytics/yolov5", "yolov5s")  # Can be 'yolov5n' - 'yolov5x6', or 'custom'
 
     train_set = load_dataset(path=dataset_path, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=0)
     # train_set.dataset.data.to(device)   # TODO: __getitem__ and next(iter(.)) are still yielding data on cpu!
