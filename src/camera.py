@@ -129,6 +129,7 @@ def get_error(cam, dataset_path, model, filename):
             img = np.array(train_features[i].squeeze())
             label = np.array(train_labels[i])
 
+            # print('img shape', np.shape(img))
             results = model(img)
             results = results.pandas().xyxy[0].to_dict(orient="records")
             
