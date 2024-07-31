@@ -82,6 +82,7 @@ def gen_noisy_transformations(batch_size, sf, tx, ty, scale_min=0.3, scale_max=0
 
 def targeted_attack_joint(dataset, patch, model, positions, assignment, targets, lr=3e-2, epochs=10, path="eval/", prob_weight=5, scale_min=0.3, scale_max=0.5, target_offsets = [[0,0,0]], position_offsets=[[0,0,0]], stlc_weights=[1.0]):
     patch_t = patch.clone().requires_grad_(True)
+    print("patch _t", patch_t.shape)
     positions_t = positions.clone().requires_grad_(True)
 
     opt = torch.optim.Adam([patch_t, positions_t], lr=lr)

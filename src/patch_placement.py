@@ -271,8 +271,11 @@ def place_patch(image, patch, transformation_matrix, random_perspection=True):
 
     # new perspective grid implementation
     # can only transform single image now!
+    # puts in transformation matrix form
     last_row = torch.tensor([[0, 0, 1]], device=transformation_matrix.device)
     transformation_matrix = torch.stack([torch.cat([transformation_matrix[i], last_row]) for i in range(len(transformation_matrix))])
+
+
     inv_t_matrix = torch.inverse(transformation_matrix)
     # print("inverted matrix shape: ", inv_t_matrix.shape)
     batch_coeffs = inv_t_matrix.reshape(inv_t_matrix.shape[0], -1) # flatten matrices
@@ -281,6 +284,9 @@ def place_patch(image, patch, transformation_matrix, random_perspection=True):
 
     # bit_mask = torch.stack([_apply_grid_transform(m, grid, mode="nearest", fill=0) for m, grid in zip(mask, batch_grid)])
     # transformed_patch = torch.stack([_apply_grid_transform(p, grid, mode="nearest", fill=0) for p, grid in zip(patch, batch_grid)])
+
+    print('batch grid???', batch_grid.shape)
+    # input and flow-field grid
     bit_mask = grid_sample(mask, batch_grid, mode='bilinear', align_corners=False, padding_mode='zeros').bool()
     transformed_patch = grid_sample(patch, batch_grid, mode='bilinear', align_corners=False, padding_mode='zeros')
 
