@@ -11,10 +11,10 @@ for string in sys.path:
 
 import torch.nn as nn
 # from google.colab.patches import cv2_imshow
-from models.yolo import Model
-from utils.general import non_max_suppression
+# from models.yolo import Model
+# from utils.general import non_max_suppression
 from torchvision.ops import box_iou
-from models.common import AutoShape
+# from models.common import AutoShape
 from util import load_dataset
 from torchvision.ops import generalized_box_iou_loss
 
@@ -69,9 +69,10 @@ class YOLOBox(nn.Module):
     def __init__(self, model_config="yolov5/models/yolov5n.yaml", model_ckpt="yolov5n.pt"):
         super().__init__()
 
-        model = Model(model_config)
-        ckpt = torch.load(model_ckpt)
-        model.load_state_dict(ckpt['model'].state_dict())
+        # model = Model(model_config)
+        # ckpt = torch.load(model_ckpt)
+        # model.load_state_dict(ckpt['model'].state_dict())
+        model = torch.hub.load("ultralytics/yolov5", "yolov5n")
 
         self.model = model.eval()
         self.c = 0
