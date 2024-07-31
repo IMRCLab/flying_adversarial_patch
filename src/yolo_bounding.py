@@ -72,9 +72,9 @@ class YOLOBox(nn.Module):
         # model = Model(model_config)
         # ckpt = torch.load(model_ckpt)
         # model.load_state_dict(ckpt['model'].state_dict())
-        model = torch.hub.load("ultralytics/yolov5", "yolov5n")
+        self.model = torch.hub.load("ultralytics/yolov5", "yolov5n", autoshape=False)
 
-        self.model = model.eval()
+        self.model.eval()
         self.c = 0
 
     def forward(self, og_imgs):
@@ -85,19 +85,20 @@ class YOLOBox(nn.Module):
 
         resized_inputs = torch.nn.functional.interpolate(imgs, size=(TENSOR_DEFAULT_WIDTH//2, TENSOR_DEFAULT_WIDTH), mode="bilinear")
         # print("input size", resized_inputs.size())
-        # print('resized grad', resized_inputs.grad_fn)
+        print('resized grad', resized_inputs.grad_fn)
         # tensor w size (B, C, H, W)
 
         output = self.model(resized_inputs)
+        print("output", type(output), output[0].shape)
 
         scale_factor = imgs.size()[3] / TENSOR_DEFAULT_WIDTH
         # print('scale', scale_factor)
 
-        # print('output', output[0].grad_fn, output[0].shape)
+        print('output', output[0].grad_fn, output[0].shape)
 
         # boxes = handle_tensor_output(output, scale_factor)
 
-        batch_size, num_boxes = output[0].shape[0], output[0].shape[1]
+        # batch_size, num_boxes = output[0].shape[0], output[0].shape[1]
         boxes, scores = self.extract_boxes_and_scores(output[0])
 
         # print('boxes', boxes.grad_fn, boxes.shape)
@@ -108,7 +109,7 @@ class YOLOBox(nn.Module):
         soft_scores = soft_scores.unsqueeze(1)
         selected_boxes = torch.bmm(soft_scores, boxes)
 
-        # print('selected boxes', selected_boxes.grad_fn, selected_boxes.shape)
+        print('selected boxes', selected_boxes.grad_fn, selected_boxes.shape)
 
         return selected_boxes.squeeze()
 
