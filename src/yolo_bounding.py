@@ -45,7 +45,6 @@ def place_patch(images, patch, target):
 
     # grid_sample()
     mask = torch.zeros_like(images)
-
     # Place the patch in the padded_patch tensor
     output[:, :, target[0]:target[0]+patch_height, target[1]:target[1]+patch_width] = patch
 
@@ -77,24 +76,24 @@ class YOLOBox(nn.Module):
         self.model.eval()
         self.c = 0
 
-    def forward(self, og_imgs):
-        print("==========FORWARD PASS=========")
+    def forward(self, og_imgs, show_imgs=False):
+        # print("==========FORWARD PASS=========")
         imgs = og_imgs / 255.0
 
         imgs = torch.repeat_interleave(imgs, 3, dim=1)
 
         resized_inputs = torch.nn.functional.interpolate(imgs, size=(TENSOR_DEFAULT_WIDTH//2, TENSOR_DEFAULT_WIDTH), mode="bilinear")
         # print("input size", resized_inputs.size())
-        print('resized grad', resized_inputs.grad_fn)
+        # print('resized grad', resized_inputs.grad_fn)
         # tensor w size (B, C, H, W)
 
         output = self.model(resized_inputs)
-        print("output", type(output), output[0].shape)
+        # print("output", type(output), output[0].shape)
 
         scale_factor = imgs.size()[3] / TENSOR_DEFAULT_WIDTH
         # print('scale', scale_factor)
 
-        print('output', output[0].grad_fn, output[0].shape)
+        # print('output', output[0].grad_fn, output[0].shape)
 
         # boxes = handle_tensor_output(output, scale_factor)
 
@@ -109,68 +108,33 @@ class YOLOBox(nn.Module):
         soft_scores = soft_scores.unsqueeze(1)
         selected_boxes = torch.bmm(soft_scores, boxes)
 
-        print('selected boxes', selected_boxes.grad_fn, selected_boxes.shape)
+
+        # debugging
+        highest_score_idxs = torch.argmax(scores, 1)
+        if show_imgs:
+            for i in range(10):
+                og_img = og_imgs[i].clone().detach().cpu().numpy()
+                og_img = np.moveaxis(og_img, 0, -1)
+                og_img = cv2.cvtColor(og_img,cv2.COLOR_GRAY2RGB)
+
+                best_box_score = scores[i, highest_score_idxs[i]]
+                true_best_box = boxes[i, highest_score_idxs[i]] * scale_factor
+
+                if DEBUG:
+                    print("best box confidence", best_box_score)
+                    print(f'best box for image {i}', true_best_box)
+
+                xmin, ymin, xmax, ymax = true_best_box.detach().cpu().numpy().astype(int)
+                print(xmin, ymin, xmax, ymax)
+                cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 0.), 1)
+
+                selected_box = selected_boxes[i][0] * scale_factor
+                xmin, ymin, xmax, ymax = int(selected_box[0]), int(selected_box[1]), int(selected_box[2]), int(selected_box[3])
+                cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 255.), 1)
+
+                cv2.imwrite(f'person_new_{i}.png', og_img)
 
         return selected_boxes.squeeze()
-
-        # highest_score_idxs = torch.argmax(scores, 1)
-
-        # total_err = 0
-        # best_boxes = torch.zeros((batch_size, 4))
-
-        # for i in range(batch_size):
-        #     if DEBUG:
-        #         print(f'image {i}')
-
-        #     # og_img = og_imgs[i].clone().detach().numpy()
-        #     # og_img = np.moveaxis(og_img, 0, -1)
-        #     # og_img = cv2.cvtColor(og_img,cv2.COLOR_GRAY2RGB)
-
-        #     best_box_score = scores[i, highest_score_idxs[i]]
-        #     # true_best_box = boxes[i, highest_score_idxs[i]] * scale_factor
-
-        #     if DEBUG:
-        #         print("best box confidence", best_box_score)
-        #         # print(f'best box for image {i}', true_best_box)
-
-        #     # xmin, ymin, xmax, ymax = true_best_box.detach().numpy().astype(int)
-        #     # print(xmin, ymin, xmax, ymax)
-        #     # cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 0.), 1)
-
-        #     if best_box_score > 0.2:
-
-        #         soft_scores = F.softmax(scores[i] * (15.), dim=0)  # Shape: (N,)
-
-        #         # Compute the weighted sum of the boxes
-        #         selected_box = torch.sum(boxes[i] * soft_scores.unsqueeze(1), dim=0)  # Shape: (4,)
-        #         selected_box = (selected_box) * scale_factor
-
-        #         print('selected', selected_box.grad_fn)
-
-        #         if DEBUG:
-        #             print('selected box', selected_box)
-
-        #         # xmin, ymin, xmax, ymax = int(selected_box[0]), int(selected_box[1]), int(selected_box[2]), int(selected_box[3])
-        #         # cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 255.), 1)
-
-        #         # err = torch.norm(true_best_box - selected_box)
-        #         # if DEBUG:
-        #         #     print('err', err)
-        #         #     if err > 5:
-        #         #         print("BIG ERROR")
-
-        #         best_boxes[i] = selected_box
-
-        #         # total_err += err.item()
-            
-        #     # print('\n')
-        #     # cv2.imwrite(f'iter_{self.c}_person_new_{i}.png', og_img)
-
-        # print('total err', total_err/batch_size)
-
-        # # print('best', best_boxes.grad_fn)
-        # self.c += 1
-        # return best_boxes
     
     def extract_boxes_and_scores(self, yolo_output):
         # Extract bounding boxes and scores from YOLO output
@@ -241,24 +205,24 @@ def handle_tensor_output(output, scale_factor):
 def training_loop():
     batch_size = 16
     lr = 3e-2
-    patch_size = (80, 80)
-    epochs = 2
+    patch_size = (50, 50)
+    epochs = 10
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
     train_dataloader = load_dataset(path=dataset_path, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=0)
 
-    target = gen_mask_coords(1, patch_size)
+    target = gen_mask_coords(1, patch_size).to(device)
     print("target:", target)
 
     wrapper_model = YOLOBox()
     
-    patch = torch.rand(batch_size, 1, *patch_size).to(device)
+    patch = torch.rand(1, 1, *patch_size).to(device) * 255.
     patch.requires_grad_(True)
     opt = torch.optim.Adam([patch], lr=lr)
     # loss = 0
-    loss = torch.tensor(0.).to(patch.device)
+    loss = torch.tensor(0.).to(device)
     loss.requires_grad_(True)
 
     # loss.register_hook(lambda grad: print("hook grad", grad))
@@ -271,22 +235,21 @@ def training_loop():
         print(f' ===== epoch {i} =====  ')
         
         for step, (data, labels) in enumerate(train_dataloader):
+            if step%10 == 0:
+                print(f'\n step {step}')
             targets = target.expand(data.shape[0], -1)
-            # print('targets', targets.shape)
-            print('train features', data.shape)
-            # print('patch', patch.shape)
+            data = data.to(device)
 
-            mod_imgs = place_patch(data, patch, targets[0])
+            mod_imgs = place_patch(data, patch, target[0])
             # print("mod imgs shape", mod_imgs.shape)
 
             # for i, data in enumerate(train_features):
-            pred_box = wrapper_model(mod_imgs)
-
-            print("ppred boxes", type(pred_box), pred_box.shape)
-            print('\n')
+            pred_box = wrapper_model(mod_imgs, step%100==0)
             loss = generalized_box_iou_loss(pred_box, targets)
 
-            print('ummm', loss.sum())
+            if step%10 == 0:
+                print(loss.sum())
+                print(patch.grad)
             opt.zero_grad()
             loss.sum().backward()
             opt.step()
@@ -404,3 +367,63 @@ if __name__ == "__main__":
     
     
     
+
+
+# highest_score_idxs = torch.argmax(scores, 1)
+
+        # total_err = 0
+        # best_boxes = torch.zeros((batch_size, 4))
+
+        # for i in range(batch_size):
+        #     if DEBUG:
+        #         print(f'image {i}')
+
+        #     # og_img = og_imgs[i].clone().detach().numpy()
+        #     # og_img = np.moveaxis(og_img, 0, -1)
+        #     # og_img = cv2.cvtColor(og_img,cv2.COLOR_GRAY2RGB)
+
+        #     best_box_score = scores[i, highest_score_idxs[i]]
+        #     # true_best_box = boxes[i, highest_score_idxs[i]] * scale_factor
+
+        #     if DEBUG:
+        #         print("best box confidence", best_box_score)
+        #         # print(f'best box for image {i}', true_best_box)
+
+        #     # xmin, ymin, xmax, ymax = true_best_box.detach().numpy().astype(int)
+        #     # print(xmin, ymin, xmax, ymax)
+        #     # cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 0.), 1)
+
+        #     if best_box_score > 0.2:
+
+        #         soft_scores = F.softmax(scores[i] * (15.), dim=0)  # Shape: (N,)
+
+        #         # Compute the weighted sum of the boxes
+        #         selected_box = torch.sum(boxes[i] * soft_scores.unsqueeze(1), dim=0)  # Shape: (4,)
+        #         selected_box = (selected_box) * scale_factor
+
+        #         print('selected', selected_box.grad_fn)
+
+        #         if DEBUG:
+        #             print('selected box', selected_box)
+
+        #         # xmin, ymin, xmax, ymax = int(selected_box[0]), int(selected_box[1]), int(selected_box[2]), int(selected_box[3])
+        #         # cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 255.), 1)
+
+        #         # err = torch.norm(true_best_box - selected_box)
+        #         # if DEBUG:
+        #         #     print('err', err)
+        #         #     if err > 5:
+        #         #         print("BIG ERROR")
+
+        #         best_boxes[i] = selected_box
+
+        #         # total_err += err.item()
+            
+        #     # print('\n')
+        #     # cv2.imwrite(f'iter_{self.c}_person_new_{i}.png', og_img)
+
+        # print('total err', total_err/batch_size)
+
+        # # print('best', best_boxes.grad_fn)
+        # self.c += 1
+        # return best_boxes
