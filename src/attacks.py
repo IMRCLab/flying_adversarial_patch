@@ -10,6 +10,8 @@ from patch_placement import place_patch
 
 from pathlib import Path
 
+from time import time
+
 def get_transformation(sf, tx, ty):
     translation_vector = torch.stack([tx, ty]).unsqueeze(0) #torch.zeros([1], device=tx.device)]).unsqueeze(0)
 
@@ -453,8 +455,23 @@ def calc_eval_loss(dataset, patch, transformation_matrix, model, target, quantiz
     return actual_loss
 
 
+def calc_anytime_loss(time_start, test_set, patch, model, optimization_pos_vectors, scale_min, scale_max, quantized=False):
+    test_loss = []
+    for target_idx, target in enumerate(targets):
+        test_losses_per_patch = []
+        for patch_idx in range(num_patches):
+            scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
+            transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(device)
+
+            test_losses_per_patch.append(calc_eval_loss(test_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, quantized=quantized))
+        # only store the best loss per target
+        test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
+    return time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()
+
 
 if __name__=="__main__":
+    # compute_time_limit = 600
+    time_start = time()
     parser = argparse.ArgumentParser()
     parser.add_argument('--file', default='settings.yaml')
     args = parser.parse_args()
@@ -564,6 +581,9 @@ if __name__=="__main__":
     train_losses = []
     test_losses = []
 
+    anytime_losses = []
+    anytime_losses.append([0., np.inf])
+
     stats_all = []
     stats_p_all = []
 
@@ -583,9 +603,11 @@ if __name__=="__main__":
     # A[0,0:2] = True
     # A[1,2:4] = True
     # print(A)
+
+    anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, model, optimization_pos_vectors, scale_min, scale_max, quantized=quantized))
+    print("Anytime losses: ", anytime_losses)
     
     for train_iteration in trange(num_hl_iter):
-        
         pos_losses = []
 
         if mode == "split" or mode == "fixed":
@@ -643,8 +665,12 @@ if __name__=="__main__":
             train_loss.append(torch.min(torch.as_tensor(train_losses_per_patch)))
             test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
 
+        # timestamps.append(time()-timestamps[0])
         train_losses.append(torch.stack(train_loss))
         test_losses.append(torch.stack(test_loss))
+        print(torch.stack(test_loss).shape)
+        anytime_losses.append([time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()])
+        print("Anytime loss: ", anytime_losses)
 
         if mode == "split" or mode == "hybrid":
             print("Assignment")
@@ -661,6 +687,9 @@ if __name__=="__main__":
             for target_idx in range(len(targets)):
                 A[sample[target_idx], target_idx] = True
             print("A", A)
+
+        # if time()-time_start > compute_time_limit:
+        #     break
 
     #print(optimization_patch_losses)
     optimization_patches = torch.stack(optimization_patches)
@@ -696,6 +725,8 @@ if __name__=="__main__":
 
     np.save(path / 'stats.npy', stats_all)
     np.save(path / 'stats_p.npy', stats_p_all)
+
+    np.save(path / 'anytime_losses.npy', anytime_losses)
 
     # # final evaluation on test set
     # print("Evaluation...")
