@@ -79,7 +79,6 @@ def gen_noisy_transformations(batch_size, sf, tx, ty, scale_min=0.3, scale_max=0
     return torch.cat(noisy_transformation_matrix)
 
 def targeted_attack_joint(dataset, patch, model, positions, assignment, targets, lr=3e-2, epochs=10, path="eval/", prob_weight=5, scale_min=0.3, scale_max=0.5, target_offsets = [[0,0,0]], position_offsets=[[0,0,0]], stlc_weights=[1.0]):
-
     patch_t = patch.clone().requires_grad_(True)
     positions_t = positions.clone().requires_grad_(True)
 
@@ -495,6 +494,9 @@ if __name__=="__main__":
     targets = np.array(targets, dtype=float).T
     targets = torch.from_numpy(targets).to(device).float()
 
+    if len(targets.shape) < 2.:
+        targets = targets.unsqueeze(0)
+
     from util import load_dataset
     dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
 
@@ -523,6 +525,9 @@ if __name__=="__main__":
 
     num_patches = settings['num_patches']
 
+    # initialize random position
+    positions = torch.FloatTensor(len(targets), num_patches, 3, 1).uniform_(-1., 1.).to(device)
+
     # load the patch from misc folder
     if settings['patch']['mode'] == 'face':
         patch_start = np.load(settings['patch']['path'])
@@ -540,6 +545,16 @@ if __name__=="__main__":
         size = settings['patch']['size']
         patch_start = torch.ones(num_patches, 1, size[0], size[1]).to(device)
 
+    if settings['patch']['mode'] == 'diffusion':
+        diffusion_path = settings['patch']['path']
+        p_number = int(path.name)
+        patch_start = np.load(diffusion_path)[p_number]
+        patch_start = torch.from_numpy(patch_start).to(device) / 255.
+        patch_start = torch.stack([patch_start.clone() for _ in range(num_patches)])
+        positions = np.array(settings['patch']['position'])
+        positions = torch.from_numpy(positions).repeat(len(targets), num_patches, 1).unsqueeze(3).to(device)
+
+
     optimization_pos_losses = []
     optimization_pos_vectors = []
 
@@ -552,11 +567,7 @@ if __name__=="__main__":
     stats_all = []
     stats_p_all = []
 
-    positions = torch.FloatTensor(len(targets), num_patches, 3, 1).uniform_(-1., 1.).to(device)
-    # sf = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
-    # tx = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
-    # ty = torch.FloatTensor(len(targets), num_patches, 1).uniform_(-1, 1.).to(device)
-    # positions = torch.stack([sf, tx, ty]).moveaxis(0, 2)
+    
 
     optimization_pos_vectors.append(positions)
 
@@ -676,12 +687,12 @@ if __name__=="__main__":
 
     # save all results in numpy arrays for later use
     np.save(path / 'patches.npy', optimization_patches.cpu().numpy())
-    # np.save(path / 'patch_losses.npy', optimization_patch_losses.cpu().numpy())
-    # np.save(path / 'positions.npy', optimization_pos_vectors.cpu().numpy())
+    np.save(path / 'patch_losses.npy', optimization_patch_losses.cpu().numpy())
+    np.save(path / 'positions.npy', optimization_pos_vectors.cpu().numpy())
     np.save(path / 'positions_norm.npy', np.array([all_sf.cpu().numpy(), all_tx.cpu().numpy(), all_ty.cpu().numpy()]))
-    # np.save(path / 'position_losses.npy', optimization_pos_losses.cpu().numpy())
-    # np.save(path / 'losses_train.npy', train_losses.cpu().numpy())
-    # np.save(path / 'losses_test.npy', test_losses.cpu().numpy())
+    np.save(path / 'position_losses.npy', optimization_pos_losses.cpu().numpy())
+    np.save(path / 'losses_train.npy', train_losses.cpu().numpy())
+    np.save(path / 'losses_test.npy', test_losses.cpu().numpy())
 
     np.save(path / 'stats.npy', stats_all)
     np.save(path / 'stats_p.npy', stats_p_all)
