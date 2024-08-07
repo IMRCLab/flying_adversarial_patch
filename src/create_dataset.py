@@ -27,7 +27,7 @@ def load_targets(patch_path):
 
     targets = [values for _, values in settings['targets'].items()]
     targets = np.array(targets, dtype=float).T
-    targets = torch.from_numpy(targets).float()
+    targets = torch.from_numpy(targets).float().unsqueeze(0)
     return targets
 
 def get_coeffs(patch_path):
@@ -110,7 +110,7 @@ def save_pickle(idx_start=0, idx_end=100):
         settings = yaml.load(f, Loader=yaml.FullLoader)
     
     patch_size = settings['patch']['size']
-    path = Path(f'results/dataset{patch_size[0]}x{patch_size[1]}/')
+    path = Path(f'results/fine-tuning80x80/hl_iter_10/')
 
     file_paths = list(path.glob('[0-9]*/patches.npy'))
     file_paths.sort(key=lambda path: int(path.parent.name))
@@ -128,7 +128,7 @@ def save_pickle(idx_start=0, idx_end=100):
 
     
     patches = np.array([np.load(file_path)[-1][0][0] for file_path in file_paths[idx_start:idx_end]]) * 255.
-    print(patches.shape)
+    print(patches.shape, patches.min(), patches.max())
     all_images = dataset.dataset.data
     print(all_images.shape)
 
@@ -166,7 +166,7 @@ def save_pickle(idx_start=0, idx_end=100):
     # targets, positions = np.split(out, 2, axis=1)
     
     # # print(patches.shape)
-    with open('80x80patches_all_2.pickle', 'wb') as f:
+    with open('80x80patches_fine_tuning.pickle', 'wb') as f:
         pickle.dump([[patch/255., target, position] for patch, target, position in zip(patches, targets, positions)], f, pickle.HIGHEST_PROTOCOL)
 
 
