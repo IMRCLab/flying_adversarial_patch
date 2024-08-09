@@ -18,7 +18,7 @@ def get_transformation(sf, tx, ty):
     eye = torch.eye(2, 2).unsqueeze(0).to(sf.device)
     scale = eye * sf
 
-    # # print(scale.shape, translation_vector.shape)
+    # print(scale.shape, translation_vector.shape)
 
     transformation_matrix = torch.cat([scale, translation_vector], dim=2)
     
@@ -455,13 +455,13 @@ def calc_eval_loss(dataset, patch, transformation_matrix, model, target, quantiz
     return actual_loss
 
 
-def calc_anytime_loss(time_start, test_set, patch, model, optimization_pos_vectors, scale_min, scale_max, quantized=False):
+def calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, quantized=False):
     test_loss = []
     for target_idx, target in enumerate(targets):
         test_losses_per_patch = []
-        for patch_idx in range(num_patches):
+        for patch_idx in range(len(patch)):
             scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
-            transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(device)
+            transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(patch.device)
 
             test_losses_per_patch.append(calc_eval_loss(test_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, quantized=quantized))
         # only store the best loss per target
@@ -564,13 +564,15 @@ if __name__=="__main__":
 
     if settings['patch']['mode'] == 'diffusion':
         diffusion_path = settings['patch']['path']
-        p_number = int(path.name)
-        patch_start = np.load(diffusion_path)[p_number]
+        # p_number = int(path.name)
+        patch_start = np.load(diffusion_path)#[p_number]
         patch_start = torch.from_numpy(patch_start).to(device) / 255.
         patch_start = torch.stack([patch_start.clone() for _ in range(num_patches)])
+        # print(patch_start.shape)
         positions = np.array(settings['patch']['position'])
         positions = torch.from_numpy(positions).repeat(len(targets), num_patches, 1).unsqueeze(3).to(device)
-
+        anytime_loss = np.load(settings['path'] + '/anytime_loss.npy')
+        time_start -= anytime_loss[-1][0]
 
     optimization_pos_losses = []
     optimization_pos_vectors = []
@@ -604,7 +606,7 @@ if __name__=="__main__":
     # A[1,2:4] = True
     # print(A)
 
-    anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, model, optimization_pos_vectors, scale_min, scale_max, quantized=quantized))
+    anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, quantized=quantized))
     print("Anytime losses: ", anytime_losses)
     
     for train_iteration in trange(num_hl_iter):
@@ -646,7 +648,7 @@ if __name__=="__main__":
 
         optimization_pos_vectors.append(positions)
         optimization_pos_losses.append(torch.stack(pos_losses))
-        print(optimization_pos_vectors[-1].shape)
+        # print(optimization_pos_vectors[-1].shape)
 
         train_loss = []
         test_loss = []
@@ -668,7 +670,7 @@ if __name__=="__main__":
         # timestamps.append(time()-timestamps[0])
         train_losses.append(torch.stack(train_loss))
         test_losses.append(torch.stack(test_loss))
-        print(torch.stack(test_loss).shape)
+        # print(torch.stack(test_loss).shape)
         anytime_losses.append([time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()])
         print("Anytime loss: ", anytime_losses)
 

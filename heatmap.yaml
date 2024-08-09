@@ -22,6 +22,10 @@ batch_size: 32
 num_patches: 1
 scale_min: 0.2
 scale_max: 0.7
+tx_min: -10.
+tx_max: 100.
+ty_min: -10.
+ty_max: 80.
 patch: 
   mode: 'random'  # face, white, random, diffusion
   size: [80, 80] # patch size in [height, width]
