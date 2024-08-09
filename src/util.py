@@ -260,6 +260,8 @@ def plot_saliency(img, gt, model):
 
     return fig
 
+def inverse_norm(val, minimum, maximum):
+    return np.arctanh(2* ((val - minimum) / (maximum - minimum)) - 1)
 
 def get_transformation(sf, tx, ty):
     translation_vector = torch.stack([tx, ty]).unsqueeze(0) #torch.zeros([1], device=tx.device)]).unsqueeze(0)
