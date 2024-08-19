@@ -130,5 +130,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+<<<<<<< HEAD
 *.out
 results/
+=======
+results/yolo_result_imgs/
+results/yolo_patches/
+results/yolo_logs/
+>>>>>>> 823d28c (ignore logs)
