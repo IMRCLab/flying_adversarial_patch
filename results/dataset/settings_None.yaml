@@ -2,7 +2,7 @@ batch_size: 32
 lr_patch: 0.01
 lr_pos: 0.001
 mode: joint
-num_hl_iter: 50
+num_hl_iter: 10
 num_patch_epochs: 1
 num_patches: 1
 num_pos_epochs: 1
@@ -30,8 +30,8 @@ stlc:
     - 0
 targets:
   x:
-  - 0.9891020414863874
+  - 0.37368845491125824
   y:
-  - -0.7188717950259929
+  - -0.9511548949556066
   z:
-  - -0.1573027739237447
+  - 0.3354552779777794

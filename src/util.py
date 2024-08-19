@@ -25,6 +25,12 @@ from onnx import numpy_helper
 
 import glob
 
+DEBUG_GRAD = False
+
+def printd(*args, **kwargs):
+    if DEBUG_GRAD:
+        print(*args, **kwargs)
+
 def load_model(path, device, config):
     """
     Loads a saved Frontnet model from the given path with the set configuration and moves it to CPU/GPU.

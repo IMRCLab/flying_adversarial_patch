@@ -15,10 +15,12 @@ from attacks import get_transformation
 
 from collections import defaultdict
 
-def img_placed_patch(targets, patch, scale_norm, tx_norm, ty_norm, p_idx, img_idx=0):
+def img_placed_patch(targets, patch, scale_norm, tx_norm, ty_norm, p_idx, img_idx=0, random=False, imrc=True):
     dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
-    train_set = load_dataset(path=dataset_path, batch_size=1, shuffle=True, drop_last=False, num_workers=0)
+    train_set = load_dataset(path=dataset_path, batch_size=1, shuffle=True, drop_last=False, num_workers=0, IMRC=imrc)
 
+    if random:
+        img_idx = np.random.randint(len(train_set.dataset))
     base_img, ground_truth = train_set.dataset.__getitem__(img_idx)
     base_img = base_img.unsqueeze(0) / 255.
     patch = torch.from_numpy(patch)
@@ -52,6 +54,7 @@ def plot_results(path, task, targets, gen_detailed):
     last_patch = np.load(path / f'last_patch_{task}.npy')
     sf, tx, ty = np.load(path / f'position_norm_{task}.npy')
 
+    print('generating detailed')
     if gen_detailed:
         optimization_patches = np.load(path / f'patches_{task}.npy')
         
@@ -65,7 +68,7 @@ def plot_results(path, task, targets, gen_detailed):
 
     
         train_losses = np.load(path / f'losses_train_{task}.npy')
-        test_losses = np.load(path / f'losses_test_{task}.npy')
+        # test_losses = np.load(path / f'losses_test_{task}.npy')
 
         # print(train_losses.shape)
 
@@ -73,8 +76,8 @@ def plot_results(path, task, targets, gen_detailed):
         # print(train_losses.shape)
         
 
-        boxplot_data = np.load(path / f'boxplot_data_{task}.npy')
-        boxplot_data = np.rollaxis(boxplot_data, 2, 1)
+        # boxplot_data = np.load(path / f'boxplot_data_{task}.npy')
+        # boxplot_data = np.rollaxis(boxplot_data, 2, 1)
         # print(boxplot_data.shape)
 
     # print("TEST SHAPE", np.shape(patch[p_idx,0]))
@@ -127,7 +130,7 @@ def plot_results(path, task, targets, gen_detailed):
                 ax = fig.add_subplot(111)
                 ax.set_title(f'Losses after each patch and position optimization')
                 ax.plot(train_losses[..., target_idx], label=f'train set, target {target}')
-                ax.plot(test_losses[..., target_idx], label=f'test set, target {target}')
+                # ax.plot(test_losses[..., target_idx], label=f'test set, target {target}')
                 ax.legend()
                 ax.set_xlabel('iteration')
                 ax.set_ylabel('MSE')
@@ -191,20 +194,20 @@ def plot_results(path, task, targets, gen_detailed):
                 pdf.savefig(fig)
                 plt.close(fig)
 
-            mean = np.mean(boxplot_data[:, :, 1])
-            std = np.std(boxplot_data[:, :, 1])
-            last = np.sum(boxplot_data[:, :, 1][:, -1])
-            print(f"initial patch: last:{last}, mean:{mean}, std:{std}")
-            for target_idx, target in enumerate(targets):
-                fig, ax = plt.subplots(1, 1)
-                ax.boxplot(boxplot_data[target_idx], 1, 'D', labels=['base images', 'starting patch', 'optimized patch'])
-                ax.set_title(f'boxplots, patches placed at optimal position for target {target}')
-                ax.set_ylabel('MSE(target, prediction)')
-                # axs[0].set_title('base images')
-                # axs[1].boxplot(rel_y, 1, 'D')
-                # axs[1].set_title('y - target y')
-                pdf.savefig(fig)
-                plt.close(fig)
+            # mean = np.mean(boxplot_data[:, :, 1])
+            # std = np.std(boxplot_data[:, :, 1])
+            # last = np.sum(boxplot_data[:, :, 1][:, -1])
+            # print(f"initial patch: last:{last}, mean:{mean}, std:{std}")
+            # for target_idx, target in enumerate(targets):
+            #     fig, ax = plt.subplots(1, 1)
+            #     ax.boxplot(boxplot_data[target_idx], 1, 'D', labels=['base images', 'starting patch', 'optimized patch'])
+            #     ax.set_title(f'boxplots, patches placed at optimal position for target {target}')
+            #     ax.set_ylabel('MSE(target, prediction)')
+            #     # axs[0].set_title('base images')
+            #     # axs[1].boxplot(rel_y, 1, 'D')
+            #     # axs[1].set_title('y - target y')
+            #     pdf.savefig(fig)
+            #     plt.close(fig)
 
         for p_idx in range(num_patches):
             for target_idx, target in enumerate(targets):

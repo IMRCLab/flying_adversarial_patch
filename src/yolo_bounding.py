@@ -15,7 +15,7 @@ import torch.nn as nn
 # from utils.general import non_max_suppression
 from torchvision.ops import box_iou
 # from models.common import AutoShape
-from util import load_dataset
+from util import load_dataset, printd
 from torchvision.ops import generalized_box_iou_loss
 
 from camera import Camera
@@ -24,34 +24,35 @@ from camera import Camera
 USE_TENSOR = True
 USE_AUTOSHAPE = False
 TENSOR_DEFAULT_WIDTH = 640
-DEBUG = False
+DEBUG = True
 
 import torch
 import torch.nn.functional as F
 
 BATCH_SIZE = 1
 IMSIZE = (96, 160)
+SOFTMAX_MULT = 15.
 
-def gen_mask_coords(n, size):
+# get random coordinates for where patch should be
+def gen_patch_coords(n, size):
     points = np.random.randint([0, 0], [IMSIZE[0] - size[0], IMSIZE[1]-size[1]], size=(1, 2))
     return torch.tensor([([y, x, y+size[0], x+size[1]]) for (y, x) in points])
 
 
 def place_patch(images, patch, target):
-    batch_size, channels, height, width = images.shape
+    # batch_size, channels, height, width = images.shape
     patch_height, patch_width = patch.shape[-2:]
 
     output = torch.zeros_like(images)
 
-    # grid_sample()
     mask = torch.zeros_like(images)
+
     # Place the patch in the padded_patch tensor
     output[:, :, target[0]:target[0]+patch_height, target[1]:target[1]+patch_width] = patch
 
     # Update the mask to indicate where the patch is placed
     mask[:, :, target[0]:target[0]+patch_height, target[1]:target[1]+patch_width] = 1
 
-    # print('mask', mask)
     # Combine the images and patches using the mask
     output = (1 - mask) * images + mask * output
 
@@ -65,16 +66,15 @@ class YOLOBox(nn.Module):
     max_det = 1000  # maximum number of detections per image
     softmax_mult = 15.
 
-    def __init__(self, model_config="yolov5/models/yolov5n.yaml", model_ckpt="yolov5n.pt"):
+    def __init__(self, model_config="yolov5/models/yolov5n.yaml", model_ckpt="yolov5n.pt", cam_config='misc/camera_calibration/calibration.yaml'):
         super().__init__()
 
-        # model = Model(model_config)
-        # ckpt = torch.load(model_ckpt)
-        # model.load_state_dict(ckpt['model'].state_dict())
+        # load model
         self.model = torch.hub.load("ultralytics/yolov5", "yolov5n", autoshape=False)
-
         self.model.eval()
-        self.c = 0
+
+        # camera
+        self.cam = Camera(cam_config)
 
     def forward(self, og_imgs, show_imgs=False):
         # print("==========FORWARD PASS=========")
@@ -82,36 +82,37 @@ class YOLOBox(nn.Module):
 
         imgs = torch.repeat_interleave(imgs, 3, dim=1)
 
+        # yolo wants size (320, 640)
         resized_inputs = torch.nn.functional.interpolate(imgs, size=(TENSOR_DEFAULT_WIDTH//2, TENSOR_DEFAULT_WIDTH), mode="bilinear")
-        # print("input size", resized_inputs.size())
-        # print('resized grad', resized_inputs.grad_fn)
-        # tensor w size (B, C, H, W)
 
         output = self.model(resized_inputs)
-        # print("output", type(output), output[0].shape)
+        # print('output device', output[0].device)
+        # print("output: type and shape", type(output), output[0].shape)
 
         scale_factor = imgs.size()[3] / TENSOR_DEFAULT_WIDTH
-        # print('scale', scale_factor)
-
-        # print('output', output[0].grad_fn, output[0].shape)
-
-        # boxes = handle_tensor_output(output, scale_factor)
-
-        # batch_size, num_boxes = output[0].shape[0], output[0].shape[1]
         boxes, scores = self.extract_boxes_and_scores(output[0])
 
-        # print('boxes', boxes.grad_fn, boxes.shape)
-
-        # print('scores shape', scores.shape)
-
-        soft_scores = F.softmax(scores * (15.), dim=1)
+        # take a weighted average of the boxes
+        soft_scores = F.softmax(scores * SOFTMAX_MULT, dim=1)
         soft_scores = soft_scores.unsqueeze(1)
-        selected_boxes = torch.bmm(soft_scores, boxes)
+        selected_boxes = torch.bmm(soft_scores, boxes) * scale_factor
 
+
+        # print('selected boxes device', selected_boxes.device)
+        # test argmax
+        # best_idxs = torch.argmax(scores, dim=1)
+        # best_idxs = best_idxs.unsqueeze(1).unsqueeze(2).expand(-1, -1, 4)  # Shape: (16, 1, 4)
+        # best_boxes = torch.gather(boxes, 1, best_idxs).squeeze()
+        # print('best boxes', best_boxes.shape)
+
+        printd('selected ', selected_boxes.shape, selected_boxes.grad_fn)
+        
 
         # debugging
-        highest_score_idxs = torch.argmax(scores, 1)
         if show_imgs:
+            # true best boxes
+            highest_score_idxs = torch.argmax(scores, 1)
+
             for i in range(10):
                 og_img = og_imgs[i].clone().detach().cpu().numpy()
                 og_img = np.moveaxis(og_img, 0, -1)
@@ -120,21 +121,18 @@ class YOLOBox(nn.Module):
                 best_box_score = scores[i, highest_score_idxs[i]]
                 true_best_box = boxes[i, highest_score_idxs[i]] * scale_factor
 
-                if DEBUG:
-                    print("best box confidence", best_box_score)
-                    print(f'best box for image {i}', true_best_box)
-
                 xmin, ymin, xmax, ymax = true_best_box.detach().cpu().numpy().astype(int)
-                print(xmin, ymin, xmax, ymax)
                 cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 0.), 1)
 
-                selected_box = selected_boxes[i][0] * scale_factor
+                selected_box = selected_boxes[i][0]
+ 
                 xmin, ymin, xmax, ymax = int(selected_box[0]), int(selected_box[1]), int(selected_box[2]), int(selected_box[3])
                 cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 255.), 1)
 
                 cv2.imwrite(f'person_new_{i}.png', og_img)
 
-        return selected_boxes.squeeze()
+        xyzs = self.cam.batch_xyz_from_boxes(selected_boxes.squeeze())
+        return xyzs
     
     def extract_boxes_and_scores(self, yolo_output):
         # Extract bounding boxes and scores from YOLO output
@@ -153,7 +151,6 @@ def xywh2xyxy(x):
     y[..., 2] = x[..., 0] + x[..., 2] / 2  # bottom right x
     y[..., 3] = x[..., 1] + x[..., 3] / 2  # bottom right y
     return y
-
 
 def generate_tensor(og_img):
 
@@ -213,7 +210,7 @@ def training_loop():
     dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
     train_dataloader = load_dataset(path=dataset_path, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=0)
 
-    target = gen_mask_coords(1, patch_size).to(device)
+    target = gen_patch_coords(1, patch_size).to(device)
     print("target:", target)
 
     wrapper_model = YOLOBox()
@@ -221,14 +218,9 @@ def training_loop():
     patch = torch.rand(1, 1, *patch_size).to(device) * 255.
     patch.requires_grad_(True)
     opt = torch.optim.Adam([patch], lr=lr)
-    # loss = 0
+
     loss = torch.tensor(0.).to(device)
     loss.requires_grad_(True)
-
-    # loss.register_hook(lambda grad: print("hook grad", grad))
-    # targets = gen_mask_coords(batch_size, patch_size)
-
-    # for data, labels in train
 
     for i in range(epochs):
         print("\n")
@@ -241,9 +233,9 @@ def training_loop():
             data = data.to(device)
 
             mod_imgs = place_patch(data, patch, target[0])
+            # mod_imgs = data
             # print("mod imgs shape", mod_imgs.shape)
 
-            # for i, data in enumerate(train_features):
             pred_box = wrapper_model(mod_imgs, step%100==0)
             loss = generalized_box_iou_loss(pred_box, targets)
 
@@ -254,7 +246,6 @@ def training_loop():
             loss.sum().backward()
             opt.step()
         
-
 
 def test_dataset():
     model = Model("yolov5/models/yolov5s.yaml")
@@ -365,65 +356,3 @@ if __name__ == "__main__":
     # test_dataset()
     training_loop()
     
-    
-    
-
-
-# highest_score_idxs = torch.argmax(scores, 1)
-
-        # total_err = 0
-        # best_boxes = torch.zeros((batch_size, 4))
-
-        # for i in range(batch_size):
-        #     if DEBUG:
-        #         print(f'image {i}')
-
-        #     # og_img = og_imgs[i].clone().detach().numpy()
-        #     # og_img = np.moveaxis(og_img, 0, -1)
-        #     # og_img = cv2.cvtColor(og_img,cv2.COLOR_GRAY2RGB)
-
-        #     best_box_score = scores[i, highest_score_idxs[i]]
-        #     # true_best_box = boxes[i, highest_score_idxs[i]] * scale_factor
-
-        #     if DEBUG:
-        #         print("best box confidence", best_box_score)
-        #         # print(f'best box for image {i}', true_best_box)
-
-        #     # xmin, ymin, xmax, ymax = true_best_box.detach().numpy().astype(int)
-        #     # print(xmin, ymin, xmax, ymax)
-        #     # cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 0.), 1)
-
-        #     if best_box_score > 0.2:
-
-        #         soft_scores = F.softmax(scores[i] * (15.), dim=0)  # Shape: (N,)
-
-        #         # Compute the weighted sum of the boxes
-        #         selected_box = torch.sum(boxes[i] * soft_scores.unsqueeze(1), dim=0)  # Shape: (4,)
-        #         selected_box = (selected_box) * scale_factor
-
-        #         print('selected', selected_box.grad_fn)
-
-        #         if DEBUG:
-        #             print('selected box', selected_box)
-
-        #         # xmin, ymin, xmax, ymax = int(selected_box[0]), int(selected_box[1]), int(selected_box[2]), int(selected_box[3])
-        #         # cv2.rectangle(og_img, (xmin, ymin), (xmax, ymax), (255, 0, 255.), 1)
-
-        #         # err = torch.norm(true_best_box - selected_box)
-        #         # if DEBUG:
-        #         #     print('err', err)
-        #         #     if err > 5:
-        #         #         print("BIG ERROR")
-
-        #         best_boxes[i] = selected_box
-
-        #         # total_err += err.item()
-            
-        #     # print('\n')
-        #     # cv2.imwrite(f'iter_{self.c}_person_new_{i}.png', og_img)
-
-        # print('total err', total_err/batch_size)
-
-        # # print('best', best_boxes.grad_fn)
-        # self.c += 1
-        # return best_boxes

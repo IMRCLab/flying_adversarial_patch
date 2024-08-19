@@ -2,10 +2,11 @@ import subprocess
 import multiprocessing
 import os
 import time
+import argparse
 
 def run_gpu_task(task_id):
-    stdout_file = open(f"results/logs/output_task_{task_id}.log", "w")
-    stderr_file = open(f"results/logs/error_task_{task_id}.log", "w")
+    stdout_file = open(f"results/yolo_logs/output_task_{task_id}.log", "w")
+    stderr_file = open(f"results/yolo_logs/error_task_{task_id}.log", "w")
 
     # Run the GPU task using subprocess
     subprocess.run(['python', 'src/attacks.py', "--file", "settings.yaml", "--task", str(task_id)], stdout=stdout_file, stderr=stderr_file)
@@ -14,7 +15,7 @@ def run_gpu_task(task_id):
     stderr_file.close()
 
 def main():
-    task_id = 0
+    task_id = 44
     # Number of times to run the task
     while True:
         num_runs = 3  # Adjust this number as needed
