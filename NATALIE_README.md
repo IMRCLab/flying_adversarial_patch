@@ -1,4 +1,6 @@
 ## YOLO Adversarial Patches
+All changes are here: https://github.com/natalieh235/flying_adversarial_patch/tree/yolo
+
 ### src/attacks.py
 `python3 attacks.py --file settings.yaml --task task_num`
 - added task_num param (int) for generating many patches in parallel
