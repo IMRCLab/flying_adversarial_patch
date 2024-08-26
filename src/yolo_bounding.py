@@ -3,18 +3,13 @@ import numpy as np
 import cv2
 import sys
 
-sys.path.append('./yolov5')
-print(f'sys.path:')
-print()
-for string in sys.path:
-    print(string) 
+# sys.path.append('./yolov5')
+# print(f'sys.path:')
+# print()
+# for string in sys.path:
+#     print(string) 
 
 import torch.nn as nn
-# from google.colab.patches import cv2_imshow
-# from models.yolo import Model
-# from utils.general import non_max_suppression
-from torchvision.ops import box_iou
-# from models.common import AutoShape
 from util import load_dataset, printd
 from torchvision.ops import generalized_box_iou_loss
 
@@ -39,26 +34,6 @@ def gen_patch_coords(n, size):
     return torch.tensor([([y, x, y+size[0], x+size[1]]) for (y, x) in points])
 
 
-def place_patch(images, patch, target):
-    # batch_size, channels, height, width = images.shape
-    patch_height, patch_width = patch.shape[-2:]
-
-    output = torch.zeros_like(images)
-
-    mask = torch.zeros_like(images)
-
-    # Place the patch in the padded_patch tensor
-    output[:, :, target[0]:target[0]+patch_height, target[1]:target[1]+patch_width] = patch
-
-    # Update the mask to indicate where the patch is placed
-    mask[:, :, target[0]:target[0]+patch_height, target[1]:target[1]+patch_width] = 1
-
-    # Combine the images and patches using the mask
-    output = (1 - mask) * images + mask * output
-
-    return output
-
-
 class YOLOBox(nn.Module):
     conf = 0.4  # NMS confidence threshold
     iou = 0.45  # NMS IoU threshold
@@ -66,7 +41,7 @@ class YOLOBox(nn.Module):
     max_det = 1000  # maximum number of detections per image
     softmax_mult = 15.
 
-    def __init__(self, model_config="yolov5/models/yolov5n.yaml", model_ckpt="yolov5n.pt", cam_config='misc/camera_calibration/calibration.yaml'):
+    def __init__(self, cam_config='misc/camera_calibration/calibration.yaml'):
         super().__init__()
 
         # load model
@@ -77,7 +52,6 @@ class YOLOBox(nn.Module):
         self.cam = Camera(cam_config)
 
     def forward(self, og_imgs, show_imgs=False):
-        # print("==========FORWARD PASS=========")
         imgs = og_imgs / 255.0
 
         imgs = torch.repeat_interleave(imgs, 3, dim=1)
@@ -86,8 +60,6 @@ class YOLOBox(nn.Module):
         resized_inputs = torch.nn.functional.interpolate(imgs, size=(TENSOR_DEFAULT_WIDTH//2, TENSOR_DEFAULT_WIDTH), mode="bilinear")
 
         output = self.model(resized_inputs)
-        # print('output device', output[0].device)
-        # print("output: type and shape", type(output), output[0].shape)
 
         scale_factor = imgs.size()[3] / TENSOR_DEFAULT_WIDTH
         boxes, scores = self.extract_boxes_and_scores(output[0])
@@ -97,16 +69,7 @@ class YOLOBox(nn.Module):
         soft_scores = soft_scores.unsqueeze(1)
         selected_boxes = torch.bmm(soft_scores, boxes) * scale_factor
 
-
-        # print('selected boxes device', selected_boxes.device)
-        # test argmax
-        # best_idxs = torch.argmax(scores, dim=1)
-        # best_idxs = best_idxs.unsqueeze(1).unsqueeze(2).expand(-1, -1, 4)  # Shape: (16, 1, 4)
-        # best_boxes = torch.gather(boxes, 1, best_idxs).squeeze()
-        # print('best boxes', best_boxes.shape)
-
         printd('selected ', selected_boxes.shape, selected_boxes.grad_fn)
-        
 
         # debugging
         if show_imgs:
@@ -118,7 +81,6 @@ class YOLOBox(nn.Module):
                 og_img = np.moveaxis(og_img, 0, -1)
                 og_img = cv2.cvtColor(og_img,cv2.COLOR_GRAY2RGB)
 
-                best_box_score = scores[i, highest_score_idxs[i]]
                 true_best_box = boxes[i, highest_score_idxs[i]] * scale_factor
 
                 xmin, ymin, xmax, ymax = true_best_box.detach().cpu().numpy().astype(int)
@@ -138,19 +100,23 @@ class YOLOBox(nn.Module):
         # Extract bounding boxes and scores from YOLO output
         # This function will be specific to the YOLO model's output format
 
-        boxes = xywh2xyxy(yolo_output[:, :, :4])
-        # boxes = yolo_output[:, :, :4]  # assuming the first 4 values are the box coordinates
+        boxes = self.xywh2xyxy(yolo_output[:, :, :4])
         scores = yolo_output[:, :, 4] *  yolo_output[:, :, 5] # multiply obj score by person confidence
         return boxes, scores
 
+    # taken from ultralytics yolo
+    def xywh2xyxy(self, x):
+        y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+        y[..., 0] = x[..., 0] - x[..., 2] / 2  # top left x
+        y[..., 1] = x[..., 1] - x[..., 3] / 2  # top left y
+        y[..., 2] = x[..., 0] + x[..., 2] / 2  # bottom right x
+        y[..., 3] = x[..., 1] + x[..., 3] / 2  # bottom right y
+        return y
 
-def xywh2xyxy(x):
-    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
-    y[..., 0] = x[..., 0] - x[..., 2] / 2  # top left x
-    y[..., 1] = x[..., 1] - x[..., 3] / 2  # top left y
-    y[..., 2] = x[..., 0] + x[..., 2] / 2  # bottom right x
-    y[..., 3] = x[..., 1] + x[..., 3] / 2  # bottom right y
-    return y
+
+
+# ========== stuff for testing =========== 
+
 
 def generate_tensor(og_img):
 
@@ -352,7 +318,5 @@ def test_place_patch():
     print(mod_img)
 
 if __name__ == "__main__":
-    # test_image()
-    # test_dataset()
-    training_loop()
+    pass
     

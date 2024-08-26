@@ -9,6 +9,7 @@ from tqdm import trange
 from patch_placement import place_patch
 
 from yolo_bounding import YOLOBox
+from camera import Camera
 
 from pathlib import Path
 
@@ -98,8 +99,12 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
         best_losses = None
 
         # for each epoch go through entire dataset, for each image in dataset optimize all patches for the corresponding target
-        for epoch in range(epochs):
 
+        print('target', targets.shape)
+        loss_per_target = [0] * targets.shape[0]
+        print('loss per target', loss_per_target)
+
+        for epoch in range(epochs):
             actual_loss = torch.tensor(0.).to(patch.device)
             stats = np.zeros((len(patch_t), len(targets)))
             stats_p = np.zeros((len(patch_t), len(targets)))
@@ -133,28 +138,17 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
 
                     target_loss = torch.zeros(len(patch_t[active_patches]), device=patch.device)
 
-                        # 0             # 0             # 1.
-                    # for target_offset, position_offset, weight in zip(target_offsets, position_offsets, stlc_weights):
-
-                    # noisy_transformations = torch.stack([gen_noisy_transformations(len(batch), scale_factor + position_offset[0], tx + position_offset[1], ty + position_offset[2]) for scale_factor, tx, ty in position[active_patches]])
-                    # patch_batches = torch.cat([x.repeat(len(batch), 1, 1, 1) for x in patch_t[active_patches]]) # get batch_sized batches of each patch in patches, size should be batch_size*num_patches
-                    # batch_multi = batch.clone().repeat(len(patch_t[active_patches]), 1, 1, 1)
-                    # transformations_multi = noisy_transformations.view(len(patch_t[active_patches])*len(batch), 2, 3) # reshape transformation matrices
-
                     mod_img = place_patch(batch_multi, patch_batches, transformations_multi) 
                     mod_img *= 255. # convert input images back to range [0-255.]
 
                     # add noise to patch+background
                     mod_img += torch.distributions.normal.Normal(loc=0.0, scale=10.).sample(mod_img.shape).to(patch.device)
+
                     # restrict patch+background to stay in range (0., 255.)
                     mod_img.clamp_(0., 255.)
 
                     # x, y, z
                     pred = model(mod_img)
-
-                    # print('========')
-                    # print('pred??? ', pred)
-                    # print('target???', target)
 
                     # mse loss between all the prediction boxes and target
                     # only target x,y and z which were previously chosen, otherwise keep x/y/z to prediction
@@ -169,7 +163,6 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
                     batch_loss = torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch, pred_v)]) # calc mse for each of the predictions of each patch
 
                     target_loss += batch_loss
-
                     
                     stats[active_patches, target_idx] += target_loss.detach().cpu().numpy()
                                                                                 # 5?
@@ -179,6 +172,11 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
                     # ??
                     expectation = probabilities.dot(target_loss)
                     target_losses.append(expectation)
+
+                    # print(target_idx, len(loss_per_target))
+                
+                    # print(loss_per_target, target_idx, target_loss.item())
+                    loss_per_target[target_idx] = loss_per_target[target_idx] + target_loss.item()
 
                 loss = torch.sum(torch.stack(target_losses))
                 actual_loss += loss.clone().detach()
@@ -192,7 +190,9 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
                 patch_t.data.clamp_(0., 1.)
 
 
-            # this doesn't even run because epochs is usually 0
+            loss_per_target = [x / len(dataset) for x in loss_per_target]
+            print('loss per target', loss_per_target)
+            # this doesn't even run because epochs is usually 1
             # return the patch that gives the best loss over the dataset
             actual_loss /= len(dataset)
             stats /= len(dataset)
@@ -207,12 +207,13 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
                 best_loss = actual_loss
                 best_stats = stats
                 best_stats_p = stats_p
-                best_losses = losses
+                # best_loss_per_target = loss_per_target
+
         
     except KeyboardInterrupt:
         print("Aborting optimization...")
 
-    return best_patch, best_loss, best_position, best_stats, best_stats_p, best_losses
+    return best_patch, best_loss, best_position, best_stats, best_stats_p, loss_per_target
 
 def targeted_attack_patch(dataset, patch, model, positions, assignment, targets, lr=3e-2, epochs=10, path="eval/", prob_weight=5, scale_min=0.3, scale_max=0.5):
 
@@ -462,6 +463,24 @@ def calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_
         test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
     return time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()
 
+def generate_targets(num_targets):
+    cam = Camera('misc/camera_calibration/calibration.yaml')
+    # random_pixel = np.random.randint([10, 10], [150, 86], (num_targets,))
+    targets = []
+    # p_width = 10
+    # p_height = 25
+    
+    while len(targets) < num_targets:
+        target = np.random.uniform([0, -1, -0.5], [2, 1, 0.5])
+        pxl = cam.point_from_xyz([*target, 1.])
+        print('generating', target, pxl)
+        if pxl[0] < 0 or pxl[0] > 160 or pxl[1] < 0 or pxl[1] > 96:
+            continue
+
+        targets.append(target)
+
+    return targets
+
 
 if __name__=="__main__":
     # compute_time_limit = 600
@@ -503,9 +522,10 @@ if __name__=="__main__":
     # get target values in correct shape and move tensor to device
     # targets = [values for _, values in settings['targets'].items()]
     # targets = np.array(targets, dtype=float).T
-    # num_targets = np.random.randint(1, 4)
-    num_targets = 1
-    targets = [np.random.uniform([0, -1, -0.5], [2, 1, 0.5], (3,)) for _ in range(num_targets)]
+    num_targets = np.random.randint(1, 4)
+    # num_targets = 1
+    # targets = [np.random.uniform([0, -1, -0.5], [2, 1, 0.5], (3,)) for _ in range(num_targets)]
+    targets = generate_targets(num_targets)
 
     settings['targets']['x'] = [t[0].item() for t in targets]
     settings['targets']['y'] = [t[1].item() for t in targets]
@@ -525,29 +545,9 @@ if __name__=="__main__":
     from util import load_dataset
     dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
 
-    # model = load_model(path=model_path, device=device, config=model_config)
-    # model.eval()
-    # print("Loading quantized network? ", quantized)
-    # if not quantized:
-    #     # load full-precision network
-    #     from util import load_model
-    #     model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
-    #     model_config = '160x32'
-    #     model = load_model(path=model_path, device=device, config=model_config)
-    # else:
-    #     # load quantized network
-    #     from util import load_quantized
-    #     model_path = 'misc/Frontnet.onnx'
-    #     model = load_quantized(path=model_path, device=device)
-    
-    # model = torch.hub.load("ultralytics/yolov5", "yolov5s", channels=1)  # Can be 'yolov5n' - 'yolov5x6', or 'custom'
-    # model.eval()
-
     model = YOLOBox()
     train_set = load_dataset(path=dataset_path, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=0, IMRC=False)
     print("DATASET SIZE: ", len(train_set.dataset))
-    # train_set.dataset.data.to(device)   # TODO: __getitem__ and next(iter(.)) are still yielding data on cpu!
-    # train_set.dataset.labels.to(device)
     
     test_set = load_dataset(path=dataset_path, batch_size=batch_size, shuffle=True, drop_last=False, train=False, num_workers=0)
 
@@ -630,7 +630,7 @@ if __name__=="__main__":
             stats_all.append(stats)
             stats_p_all.append(stats_p)
         elif mode == "joint" or mode == "hybrid":
-            patch, loss_patch, positions, stats, stats_p, train_loss = targeted_attack_joint(train_set, patch, model, optimization_pos_vectors[-1], A, targets=targets, lr=lr_patch, epochs=num_patch_epochs, path=path, prob_weight=prob_weight, scale_min=scale_min, scale_max=scale_max, target_offsets=stlc_target_offsets, position_offsets=stlc_position_offsets,
+            patch, loss_patch, positions, stats, stats_p, loss_per_target = targeted_attack_joint(train_set, patch, model, optimization_pos_vectors[-1], A, targets=targets, lr=lr_patch, epochs=num_patch_epochs, path=path, prob_weight=prob_weight, scale_min=scale_min, scale_max=scale_max, target_offsets=stlc_target_offsets, position_offsets=stlc_position_offsets,
             stlc_weights=stlc_weights)
             optimization_pos_vectors.append(positions)
 
@@ -661,12 +661,14 @@ if __name__=="__main__":
 
         optimization_pos_vectors.append(positions)
         optimization_pos_losses.append(torch.stack(pos_losses))
-        train_losses.append(torch.as_tensor(loss_patch))
+        train_losses.append(torch.as_tensor(loss_per_target))
 
         # NAT: why?
         # train_loss = []
         # test_loss = []
         # cost = np.zeros((num_patches, len(targets)))
+
+        # for each target get the best train loss?
         # for target_idx, target in enumerate(targets):
         #     train_losses_per_patch = []
         #     test_losses_per_patch = []
@@ -726,6 +728,7 @@ if __name__=="__main__":
     # print("train losses what are you", train_losses)
 
     train_losses = torch.stack(train_losses)
+    print('train_losses', train_losses)
     # train_losses = torch.flatten(torch.stack(train_losses))
     # print('train losses shape', train_losses.shape)
     # test_losses = torch.zeros()
@@ -750,6 +753,9 @@ if __name__=="__main__":
     # print("last_pos", last_pos, np.shape(last_pos))
 
     # saved_data = ['patches', 'patch_losses', 'positions']
+    print('train losses', train_losses)
+    print('optimization patch losses', optimization_patch_losses)
+
 
     if gen_detailed:
         # save all results in numpy arrays for later use

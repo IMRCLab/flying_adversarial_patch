@@ -9,6 +9,9 @@ import argparse
 
 import torch
 from patch_placement import place_patch
+from util import load_model, load_dataset
+
+from yolo_bounding import YOLOBox
 
 
 def gen_T(coeffs):
@@ -51,9 +54,6 @@ def calc_loss(target, patch, T, img, model):
     return mse
 
 def idx_best_target(targets, patch, Ts, img, model):
-    # print("inside best target")
-    # print(targets)
-    # print(Ts)
     losses = np.array([calc_loss(target, patch, T, img, model) for target, T in zip(targets, Ts)])
     return np.argmin(losses)
 
@@ -119,11 +119,9 @@ def save_pickle(idx_start=0, idx_end=100):
     model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
     model_config = '160x32'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = load_model(path=model_path, device=device, config=model_config)
-    model.eval()
 
     dataset_path = "pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle"
-    dataset = load_dataset(dataset_path, batch_size=1, train=False, train_set_size=0.9)
+    dataset = load_dataset(dataset_path, batch_size=1, train=False, train_set_size=0.95)
 
 
     

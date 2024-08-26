@@ -14,7 +14,9 @@ import csv
 from util import opencv2quat, load_dataset, printd
 
 RADIUS = 0.5
-
+IM_HEIGHT = 96
+IM_WIDTH = 160
+person_width = 10
 
 class Camera:
     def __init__(self, path):
@@ -44,7 +46,7 @@ class Camera:
 
         self.camera_extrinsic_tens = torch.tensor(self.camera_extrinsic, dtype=torch.float32)
 
-    
+    # originally for updating the calibration using new ground truth data, not used for anything right now
     def update_with_points(self, objs, imgs, img_size):
         print('updating matrix')
         obj_pts = np.array(objs, dtype=np.float32)[np.newaxis]
@@ -63,12 +65,12 @@ class Camera:
 
     # compute relative position of center of patch in camera frame
     def xyz_from_bb(self, bb):
-        # bb - xmin,ymin,xmax,ymax
-        # mtrx, dist_vec = get_camera_parameters()
         
         # get pixels for bb side center
         P1 = np.array([bb[0],(bb[1] + bb[3])/2])
         P2 = np.array([bb[2],(bb[1] + bb[3])/2])
+
+        # print(P1, P2)
 
         # get rays for pixels
         a1 = np.array([(P1[0]-self.ox)/self.fx, (P1[1]-self.oy)/self.fy, 1.0])
@@ -77,18 +79,14 @@ class Camera:
         # normalize rays
         a1_norm = np.linalg.norm(a1)
         a2_norm = np.linalg.norm(a2)
-        # print('norms', a1_norm, a2_norm)
+
         # get the distance    
         distance = (np.sqrt(2)*RADIUS)/(np.sqrt(1-np.dot(a1,a2)/(a1_norm*a2_norm)))
-        # print("norm product", a1_norm*a2_norm, np.dot(a1,a2))
-        # print('distance', distance)
-        # get central ray
+
         ac = (a1+a2)/2
-        # print('ac', ac)
+
         # get the position
         xyz = distance*ac/np.linalg.norm(ac)
-        # print('xyz', xyz)
-        # print('test', ac/np.linalg.norm(ac))
         new_xyz = (np.linalg.inv(self.camera_extrinsic) @ [*xyz, 1])[:3]
         return new_xyz
 
@@ -106,9 +104,6 @@ class Camera:
         a2 = torch.ones(3)
         a2[0] = (bb[2]-self.ox)/self.fx
         a2[1] = (center-self.oy)/self.fy
-
-        # a1 = torch.tensor([(bb[0]-self.ox)/self.fx, (center-self.oy)/self.fy, 1.0])
-        # a2 = torch.tensor([(bb[2]-self.ox)/self.fx, (center-self.oy)/self.fy, 1.0])
 
         printd('a1', a1.grad_fn)
 
@@ -143,51 +138,6 @@ class Camera:
             xyzs[i] = coords
 
         return xyzs
-    
-    def batch_xyz_from_bb_bad(self, boxes):
-        # boxes (batch_size, 4)
-        batch_size = boxes.shape[0]
-        centers = (boxes[:, 1] + boxes[:, 3])/2.
-        # print('centers', centers.shape)
-        # print('ummm', boxes[:, 0].shape)
-
-        a1 = torch.stack(((boxes[:, 0] - self.ox)/self.fx, (centers - self.oy)/self.fy, torch.ones(batch_size)), dim=1)
-        a2 = torch.stack(((boxes[:, 2] - self.ox)/self.fx, (centers - self.oy)/self.fy, torch.ones(batch_size)), dim=1)
-        print('batch a1', a1)
-
-        a1_norm = torch.linalg.vector_norm(a1, dim=1)
-        a2_norm = torch.linalg.vector_norm(a2, dim=1)
-        print('batch norms', a1_norm)
-
-        # a1: 4x3, a2: 4x3 and want 4x1
-        norm_product = torch.matmul(a1_norm, a2_norm)
-        inner_norm = torch.bmm(a1.view(a1.shape[0], 1, a1.shape[1]), a2.view(a1.shape[0], a1.shape[1], 1)).squeeze()
-        # .squeeze(-1)
-        print('mult norm', norm_product)
-        print('inner norm', inner_norm, inner_norm.shape)
-
-        distances = (np.sqrt(2)*RADIUS)/(torch.sqrt(1-inner_norm/norm_product))
-        print('distance', distances, distances.shape)
-
-        # # get central ray
-        ac = (a1+a2)/2
-        ac_norm = torch.linalg.vector_norm(ac, dim=1,keepdim=True)
-        print('ac', ac)
-        print('ac norm', ac_norm, ac_norm.shape)
-
-        print('test', ac/ac_norm)
-
-        # cam_xyzs = torch.bmm(distances, ac.view(ac.shape[0], 1, ac.shape[1])).squeeze()
-        cam_xyzs = distances.view(-1, 1, 1) * (ac/ac_norm)
-        print('xyzs', cam_xyzs, cam_xyzs.shape)
-
-        xyzs_homogenous = torch.hstack((cam_xyzs, torch.ones(batch_size, 1)))
-        cam_extr_inv = torch.inverse(self.camera_extrinsic_tens)
-
-        xyzs = torch.matmul(xyzs_homogenous, torch.t(cam_extr_inv))
-        print('final', xyzs)
-        # new_xyz = (np.linalg.inv(self.camera_extrinsic) @ [*xyz, 1])[:3]
-        # # /torch.linalg.vector_norm(ac, dim=1)
 
     def point_from_xyz(self, coords):
         camera_frame = self.camera_extrinsic @ coords
@@ -208,6 +158,8 @@ def gen_camera_matrix(cam):
 
     cam.update_with_points(obj_pts, img_pts, img_size)
 
+
+# test stuff
 def test_camera():
     dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
     model = torch.hub.load("ultralytics/yolov5", "yolov5s")  # Can be 'yolov5n' - 'yolov5x6', or 'custom'
@@ -297,6 +249,42 @@ if __name__ == "__main__":
 
     # test_batch_xyz(cam)
     # t = [ 1.0461,  0.3442, -0.3205, 1.]
-    t = [ 0.3787, -0.6999,  0.4411, 1.]
-    print(cam.point_from_xyz(t))
+    # invalid = 0
+    # total = 0
+    # for x in np.linspace(0, 2, 100):
+    #     for y in np.linspace(-1, 1, 100):
+    #         for z in np.linspace(-0.5, 0.5, 50):
+    #             # print(x)
+    #             total += 1
+    #             t = [ x, y, z, 1.]
+    #             img_x, img_y = cam.point_from_xyz(t)
+    #             # print(x, y)
+    #             if img_x < 0 or img_x > 196 or img_y < 0 or img_y > 96:
+    #                 invalid += 1
+    #                 print(t)
+    # print('invalid', invalid)
+    # print('total', total)
+    # print(invalid/total)
+
+    invalid = 0
+    total = 0
+    for img_x in range(10, 160):
+        for img_y in range(15, 96):
+            # print(x)
+            total += 1
+
+            x, y, z = cam.xyz_from_bb((img_x - 10, img_y - 15, img_x + 10, img_y + 15))
+
+            if x < 0 or x > 2 or y < -1 or y > 1 or z < -0.5 or z > 0.5:
+                print(x, y, z)
+                invalid += 1
+
+    print('invalid', invalid)
+    print('total', total)
+    print(invalid/total)
+
+    # s = 4
+    # pxl = (1, 1, 3, 3)
+    # xyz = cam.xyz_from_bb(pxl)
+    # print(xyz)
     # gen_camera_matrix()
