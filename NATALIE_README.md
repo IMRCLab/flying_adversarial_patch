@@ -4,7 +4,7 @@ All changes are here: https://github.com/natalieh235/flying_adversarial_patch/tr
 ### src/attacks.py
 `python3 attacks.py --file settings.yaml --task task_num`
 - added task_num param (int) for generating many patches in parallel
-- changed targeted_attack_joint to use the YOLOBounding class to predict poses instead
+- changed targeted_attack_joint to use the YOLOBounding class to predict the person coordinates instead
 - currently, only targets that are valid in the image pixel context are generated
 
 ### src/run_attacks.py
@@ -15,7 +15,7 @@ All changes are here: https://github.com/natalieh235/flying_adversarial_patch/tr
 ### src/test_yolo_patches.py 
 `python3 src/test_yolo_patches.py --start start_patch_id --end end_patch_id`
 - functions for calculating error of yolo patches and displaying them (params are starting and ending patch_id)
-- expects that patches are saved in PATH folder in the format that `attacks.py` saves them in (npy files), and each patch has a corresponding `settings_patchid.yaml` file
+- expects that patches are saved in PATH folder in the same format `attacks.py` saves them in (npy files), and each patch has a corresponding `settings_patchid.yaml` file
 <br><br/>
 For each patch:
 1. loads the patch from `PATH/last_patch_id.npy`
@@ -31,6 +31,7 @@ The error printed isn't the error over the entire dataset for all patches, just 
 has class `YOLOBox`, a wrapper around the YOLO ultralytics model that skips the normal NMS step and takes a weighted average to calculate the highest confidence bounding box so that the output is differentiable
 - uses the ultralytics YOLOv5 nano module with `autoshape=False` so that it can take batched inputs
 - the score assigned to each box is the product of the objectness score and the person_class score, calculated in `extract_boxes_and_scores`
+- model(input) outputs bounding box coordinates of the highest confidence box for each image
 - used in `attacks.py` to train patches against the YOLO model
 
 ### src/camera.py
@@ -47,5 +48,5 @@ Functions:
 
 ### Other
 All the patches I generated (653, but only 578 with valid targets) are saved in `all_yolo_patches.pkl`
-Diffusion model trained for 1000 epochs, 1000 denoising steps (approx 23 min training) is saved in `yolo_conditioned_unet_80x80_1000_3256i_255.pth ` <br>
-Samples from that model saved in `samples_conditioning_4_80x80.png`
+Diffusion model trained for 1000 epochs, 1000 denoising steps (approx 23 min training) is saved in `yolo_conditioned_unet_80x80_1000_3256i_255.pth ` (uploaded to the TUB drive) <br>
+Samples from that model are saved in `samples_conditioning_4_80x80.png`
