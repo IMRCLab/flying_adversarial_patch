@@ -376,7 +376,7 @@ if __name__ == '__main__':
     import pickle
     import matplotlib.pyplot as plt
 
-    with open('data/FAP_combined.pickle', 'rb') as f:
+    with open('diffusion/FAP_combined.pickle', 'rb') as f:
         data = pickle.load(f)    
 
 
@@ -411,7 +411,7 @@ if __name__ == '__main__':
 
 
 
-    torch.save(model.state_dict(), f'conditioned_unet_{patch_size[0]}x{patch_size[1]}_{1_000}_3256i.pth')
+    torch.save(model.state_dict(), f'diffusion/diffusion_model.pth')
     
     n_samples = 5
     x = np.random.uniform(0,2,n_samples)

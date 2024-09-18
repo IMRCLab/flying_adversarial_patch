@@ -89,8 +89,6 @@ def main():
         
         from attacks import calc_anytime_loss
     
-        import sys
-        sys.path.insert(0,'/home/hanfeld/bb_FAP/')
         from diffusion.diffusion_model import DiffusionModel
         
     load_time = time()-time_start
@@ -112,7 +110,7 @@ def main():
 
                 if args.diffusion:
                     dif_model = DiffusionModel(device)
-                    dif_model.load('/home/hanfeld/bb_FAP/conditioned_unet_80x80_1000_3256i_255.pth')
+                    dif_model.load('diffusion/diffusion_model.pth')
                     s['patch']['mode'] = 'diffusion'
                 
                     # sf = np.random.uniform(scale_min, scale_max)

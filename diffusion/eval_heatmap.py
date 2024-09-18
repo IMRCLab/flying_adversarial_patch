@@ -6,7 +6,7 @@ import pickle
 
 def calc_loss_dataset():
     # get coordinates for the patches that were included in train dataset
-    with open('/home/hanfeld/bb_FAP/data/FAP_combined.pickle', 'rb') as f:
+    with open('diffusion/FAP_combined.pickle', 'rb') as f:
         data = pickle.load(f)    
 
     # patches = []
