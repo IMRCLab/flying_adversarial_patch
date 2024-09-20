@@ -39,10 +39,10 @@ def img_placed_patch(targets, patch, scale_norm, tx_norm, ty_norm, p_idx, img_id
     return np.array(final_images)
 
 
-def plot_results(path, task, targets, gen_detailed):
+def plot_results(path, targets, gen_detailed):
 
     path = Path(path)
-    with open(path / f'settings_{task}.yaml') as f:
+    with open(path / f'settings.yaml') as f:
         settings = yaml.load(f, Loader=yaml.FullLoader)
 
     # targets = [values for _, values in settings['targets'].items()]
@@ -51,24 +51,24 @@ def plot_results(path, task, targets, gen_detailed):
     mode = settings['mode']
     num_patches = settings["num_patches"]
 
-    last_patch = np.load(path / f'last_patch_{task}.npy')
-    sf, tx, ty = np.load(path / f'position_norm_{task}.npy')
+    last_patch = np.load(path / f'last_patch.npy')
+    sf, tx, ty = np.load(path / f'position_norm.npy')
 
     print('generating detailed')
     if gen_detailed:
-        optimization_patches = np.load(path / f'patches_{task}.npy')
+        optimization_patches = np.load(path / f'patches.npy')
         
-        optimization_patch_losses = np.load(path / f'patch_losses_{task}.npy')
+        optimization_patch_losses = np.load(path / f'patch_losses.npy')
         # print(optimization_patch_losses.shape)
 
-        optimization_pos_losses = np.load(path / f'position_losses_{task}.npy')
+        optimization_pos_losses = np.load(path / f'position_losses.npy')
         # print(optimization_pos_losses.shape)
 
-        all_sf, all_tx, all_ty = np.load(path / f'positions_norm_{task}.npy')
+        all_sf, all_tx, all_ty = np.load(path / f'positions_norm.npy')
 
     
-        train_losses = np.load(path / f'losses_train_{task}.npy')
-        # test_losses = np.load(path / f'losses_test_{task}.npy')
+        train_losses = np.load(path / f'losses_train.npy')
+        # test_losses = np.load(path / f'losses_test.npy')
 
         # print(train_losses.shape)
 
@@ -76,13 +76,13 @@ def plot_results(path, task, targets, gen_detailed):
         # print(train_losses.shape)
         
 
-        # boxplot_data = np.load(path / f'boxplot_data_{task}.npy')
+        # boxplot_data = np.load(path / f'boxplot_data.npy')
         # boxplot_data = np.rollaxis(boxplot_data, 2, 1)
         # print(boxplot_data.shape)
 
     # print("TEST SHAPE", np.shape(patch[p_idx,0]))
 
-    with PdfPages(Path(path) / f'result_{task}.pdf') as pdf:
+    with PdfPages(Path(path) / f'result.pdf') as pdf:
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.set_title(f'Last patch')
@@ -223,7 +223,7 @@ def plot_results(path, task, targets, gen_detailed):
 
         if gen_detailed:
             # stats and stats_p
-            stats = np.load(path / f'stats_{task}.npy')
+            stats = np.load(path / f'stats.npy')
 
             # plot individual losses over iterations
             fig, axs = plt.subplots(1, len(targets), sharex=True, sharey=True, squeeze=False)
@@ -239,7 +239,7 @@ def plot_results(path, task, targets, gen_detailed):
             # print("Loss after assignment: ", np.sum(np.min(stats[-1], axis=0)))
 
             # plot individual probs over iterations
-            stats_p = np.load(path / f'stats_p_{task}.npy')
+            stats_p = np.load(path / f'stats_p.npy')
             fig, axs = plt.subplots(1, len(targets), sharex=True, sharey=True, squeeze=False)
             fig.suptitle('Individual Probabilities')
             for target_idx in range(len(targets)):

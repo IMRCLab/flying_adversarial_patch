@@ -52,7 +52,7 @@ def load_model(path, device, config):
     
     # load the saved model 
     try:
-        model.load_state_dict(torch.load(path, map_location=device)['model'])
+        model.load_state_dict(torch.load(path, map_location=device, weights_only=True)['model'])
     except RuntimeError:
         print("RuntimeError while trying to load the saved model!")
         print("Seems like the model config does not match the saved model architecture.")

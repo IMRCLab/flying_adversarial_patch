@@ -3,9 +3,9 @@ path: 'results/minimal_yolo'
 # +y is left
 # +z is top
 targets:
-  x : [ 1.0] #, 1.5, 0.5, 2.0, 1.0, 1.0]
-  y : [ 0.0] #, 0.0, 0.0, 0.0, 1.0, -1.0]
-  z : [ 0.0] #, 0.0, 0.0, 0.0, 0.0, 0.0]
+  x : [ 1.0, 1.5, 0.5] #, 2.0, 1.0, 1.0]
+  y : [ 0.0, 0.0, 0.0] #, 0.0, 1.0, -1.0]
+  z : [ 0.0, 0.0, 0.0] #, 0.0, 0.0, 0.0]
 stlc: # small-time locally controllability
   offsets:
     # base
@@ -14,12 +14,12 @@ stlc: # small-time locally controllability
 lr_pos: 0.001
 lr_patch: 0.01
 prob_weight: 1.0
-num_hl_iter: 25
+num_hl_iter: 100
 num_pos_restarts: 3
 num_pos_epochs: 1
 num_patch_epochs: 1
 batch_size: 32
-num_patches: 1
+num_patches: 2
 scale_min: 0.2
 scale_max: 0.7
 patch: 
