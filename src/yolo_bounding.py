@@ -76,7 +76,8 @@ class YOLOBox(nn.Module):
             # true best boxes
             highest_score_idxs = torch.argmax(scores, 1)
 
-            for i in range(10):
+            for i in range(min(len(og_imgs), 10)):
+                # print(og_imgs.shape)
                 og_img = og_imgs[i].clone().detach().cpu().numpy()
                 og_img = np.moveaxis(og_img, 0, -1)
                 og_img = cv2.cvtColor(og_img,cv2.COLOR_GRAY2RGB)

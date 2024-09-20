@@ -18,9 +18,11 @@ def run_gpu_task(task_id):
 
 def main():
 
+    os.makedirs(OUTPUT_FOLDER, exist_ok = True)
+
     # starting task_id
-    start_task_id = 456
-    end_task_id = 1200
+    start_task_id = 0
+    end_task_id = 2
 
     # number of proceses that can run in parallel
     num_runs = 2 

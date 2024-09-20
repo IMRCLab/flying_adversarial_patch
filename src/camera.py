@@ -13,7 +13,7 @@ import csv
 
 from util import opencv2quat, load_dataset, printd
 
-RADIUS = 0.5
+RADIUS = 0.3
 IM_HEIGHT = 96
 IM_WIDTH = 160
 person_width = 10

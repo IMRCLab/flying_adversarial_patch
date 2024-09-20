@@ -83,7 +83,8 @@ def gen_noisy_transformations(batch_size, sf, tx, ty, scale_min=0.3, scale_max=0
     
     return torch.cat(noisy_transformation_matrix)
 
-def targeted_attack_joint(dataset, patch, model, positions, assignment, targets, lr=3e-2, epochs=10, path="eval/", prob_weight=5, scale_min=0.3, scale_max=0.5, target_offsets = [[0,0,0]], position_offsets=[[0,0,0]], stlc_weights=[1.0]):
+def targeted_attack_joint(dataset, patch, model, positions, assignment, targets, lr=3e-2, epochs=10, path="eval/", model_name='frontnet', prob_weight=5, scale_min=0.3, scale_max=0.5, target_offsets = [[0,0,0]], position_offsets=[[0,0,0]], stlc_weights=[1.0]):
+
     patch_t = patch.clone().requires_grad_(True)
     # print("patch _t", patch_t.shape)
     positions_t = positions.clone().requires_grad_(True)
@@ -148,7 +149,16 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
                     mod_img.clamp_(0., 255.)
 
                     # x, y, z
-                    pred = model(mod_img)
+                    if model_name == 'frontnet':
+                        x, y, z, phi = model(mod_img)
+                        # prepare shapes for MSE loss
+                        #target_batch = target.repeat(len(batch), 1)
+                        # TODO: improve readbility!
+                        pred = torch.stack([x, y, z])
+                        pred = pred.squeeze(2).mT
+                    
+                    if model_name == 'yolov5':
+                        pred = model(mod_img)
 
                     # mse loss between all the prediction boxes and target
                     # only target x,y and z which were previously chosen, otherwise keep x/y/z to prediction
@@ -413,7 +423,7 @@ def targeted_attack_position(dataset, patch, model, target, lr=3e-2, include_sta
 
     return best_scaling, best_tx, best_ty, best_loss
 
-def calc_eval_loss(dataset, patch, transformation_matrix, model, target, quantized=False):
+def calc_eval_loss(dataset, patch, transformation_matrix, model, target, model_name='frontnet', quantized=False):
     actual_loss = torch.tensor(0.).to(patch.device)
 
     mask = torch.isnan(target)
@@ -429,14 +439,18 @@ def calc_eval_loss(dataset, patch, transformation_matrix, model, target, quantiz
         if quantized:
             mod_img.floor_()
 
-        # x, y, z, phi = model(mod_img)
 
-        # prepare shapes for MSE loss
-        # target_batch = target.repeat(len(batch), 1)
-        # pred = torch.stack([x, y, z])
-        # pred = pred.squeeze(2).mT
+        if model_name == 'frontnet':
+            x, y, z, phi = model(mod_img)
 
-        pred = model(mod_img)
+            # prepare shapes for MSE loss
+            #target_batch = target.repeat(len(batch), 1)
+            # TODO: improve readbility!
+            pred = torch.stack([x, y, z])
+            pred = pred.squeeze(2).mT
+
+        if model_name == 'yolov5':
+            pred = model(mod_img)
 
         # only target x,y and z which are previously chosen, otherwise keep x/y/z to prediction
         #target_batch = torch.where(torch.isnan(target_batch), pred, target_batch)
@@ -487,6 +501,7 @@ if __name__=="__main__":
     time_start = time()
     parser = argparse.ArgumentParser()
     parser.add_argument('--file', default='settings.yaml')
+    parser.add_argument('--model', default='frontnet', choices=['frontnet', 'yolov5'])
     parser.add_argument('--task')
     args = parser.parse_args()
 
@@ -545,7 +560,25 @@ if __name__=="__main__":
     from util import load_dataset
     dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
 
-    model = YOLOBox()
+    if args.model == 'frontnet':
+        print("Loading quantized network? ", quantized)
+        if not quantized:
+            # load full-precision network
+            from util import load_model
+            model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
+            model_config = '160x32'
+            model = load_model(path=model_path, device=device, config=model_config)
+        else:
+            # load quantized network
+            from util import load_quantized
+            model_path = 'misc/Frontnet.onnx'
+            model = load_quantized(path=model_path, device=device)
+    
+    if args.model == 'yolov5':
+        model = YOLOBox()
+    
+    
+    
     train_set = load_dataset(path=dataset_path, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=0, IMRC=False)
     print("DATASET SIZE: ", len(train_set.dataset))
     
@@ -630,7 +663,7 @@ if __name__=="__main__":
             stats_all.append(stats)
             stats_p_all.append(stats_p)
         elif mode == "joint" or mode == "hybrid":
-            patch, loss_patch, positions, stats, stats_p, loss_per_target = targeted_attack_joint(train_set, patch, model, optimization_pos_vectors[-1], A, targets=targets, lr=lr_patch, epochs=num_patch_epochs, path=path, prob_weight=prob_weight, scale_min=scale_min, scale_max=scale_max, target_offsets=stlc_target_offsets, position_offsets=stlc_position_offsets,
+            patch, loss_patch, positions, stats, stats_p, loss_per_target = targeted_attack_joint(train_set, patch, model, optimization_pos_vectors[-1], A, model_name=args.model, targets=targets, lr=lr_patch, epochs=num_patch_epochs, path=path, prob_weight=prob_weight, scale_min=scale_min, scale_max=scale_max, target_offsets=stlc_target_offsets, position_offsets=stlc_position_offsets,
             stlc_weights=stlc_weights)
             optimization_pos_vectors.append(positions)
 
@@ -664,24 +697,24 @@ if __name__=="__main__":
         train_losses.append(torch.as_tensor(loss_per_target))
 
         # NAT: why?
-        # train_loss = []
-        # test_loss = []
-        # cost = np.zeros((num_patches, len(targets)))
+        train_loss = []
+        test_loss = []
+        cost = np.zeros((num_patches, len(targets)))
 
         # for each target get the best train loss?
-        # for target_idx, target in enumerate(targets):
-        #     train_losses_per_patch = []
-        #     test_losses_per_patch = []
-        #     for patch_idx in range(num_patches):
-        #         scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
-        #         transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(device)
+        for target_idx, target in enumerate(targets):
+            train_losses_per_patch = []
+            test_losses_per_patch = []
+            for patch_idx in range(num_patches):
+                scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
+                transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(device)
 
-        #         train_losses_per_patch.append(calc_eval_loss(train_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, quantized=quantized))
-        #         test_losses_per_patch.append(calc_eval_loss(test_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, quantized=quantized))
-        #         cost[patch_idx, target_idx] = test_losses_per_patch[-1]
-        #     # only store the best loss per target
-        #     train_loss.append(torch.min(torch.as_tensor(train_losses_per_patch)))
-        #     test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
+                train_losses_per_patch.append(calc_eval_loss(train_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, quantized=quantized))
+                test_losses_per_patch.append(calc_eval_loss(test_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, quantized=quantized))
+                cost[patch_idx, target_idx] = test_losses_per_patch[-1]
+            # only store the best loss per target
+            train_loss.append(torch.min(torch.as_tensor(train_losses_per_patch)))
+            test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
 
         # timestamps.append(time()-timestamps[0])
         train_losses.append(torch.stack(train_loss))
@@ -725,14 +758,10 @@ if __name__=="__main__":
     final_test_loss = (calc_eval_loss(test_set, optimization_patches[-1], transformation_matrix, model, targets[0], quantized=quantized))
     print("FINAL TEST LOSS: ", final_test_loss)
 
-    # print("train losses what are you", train_losses)
 
     train_losses = torch.stack(train_losses)
-    print('train_losses', train_losses)
-    # train_losses = torch.flatten(torch.stack(train_losses))
-    # print('train losses shape', train_losses.shape)
-    # test_losses = torch.zeros()
-    # test_losses = torch.stack(test_losses)
+    test_losses = torch.stack(test_losses)
+
 
     print("Saving results...")
     # prepare data for plots
