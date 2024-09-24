@@ -9,6 +9,9 @@ import argparse
 
 import torch
 from patch_placement import place_patch
+from util import load_model, load_dataset
+
+from yolo_bounding import YOLOBox
 
 
 def gen_T(coeffs):
@@ -159,8 +162,6 @@ def save_pickle(idx_start=0, idx_end=100):
 
     print(targets.shape)
     print(positions.shape)
-
-            
 
     # out = np.array([get_best_target_pos(patch, path, dataset, model, device) for patch, path in zip(patches, file_paths[idx_start:idx_end+1])])
     # targets, positions = np.split(out, 2, axis=1)

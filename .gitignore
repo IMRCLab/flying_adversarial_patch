@@ -132,3 +132,12 @@ dmypy.json
 
 *.out
 results/
+minimal_patches/
+parallel_compute/
+*.pickle
+*.pkl
+*.sh
+*.sbatch
+*.pth
+test/
+src/custom_patches/diffusion_patches_100.npy
