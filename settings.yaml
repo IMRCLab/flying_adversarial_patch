@@ -1,18 +1,40 @@
-path: 'results/minimal_yolo'
+path: "eval/demo/multi/"
 # +x is distance
 # +y is left
 # +z is top
 targets:
-  x : [ 1.0, 1.5, 0.5] #, 2.0, 1.0, 1.0]
-  y : [ 0.0, 0.0, 0.0] #, 0.0, 1.0, -1.0]
-  z : [ 0.0, 0.0, 0.0] #, 0.0, 0.0, 0.0]
+  x : [ 1.0, 1.5, 0.5, 1.0, 1.0] #, 1.0] #, 1.0] #, 1.0] #, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0]
+  y : [ 0.0, 0.0, 0.0, 1.0, -1.0] #, -1.0] #, 1.0] #, 0.0] #, 0.0, -1.0, -1.0, 1.0, 1.0, 0.0]
+  z : [ 0.0, 0.0, 0.0, 0.0, 0.0] #, 0.0] #, 0.0] #, -1.0] #, 1.0, -1.0, 1.0, -1.0, 1.0, 0.0]
 stlc: # small-time locally controllability
   offsets:
     # base
     - target: [0,0,0]
       position: [0,0,0]
+    # # x
+    # - target: [0.06,0,0]
+    #   position: [-0.05,0,0]
+    # - target: [0.13,0,0]
+    #   position: [-0.1,0,0]
+    # - target: [-0.04,0,0]
+    #   position: [0.05,0,0]
+    # - target: [-0.08,0,0]
+    #   position: [0.1,0,0]
+    # # y
+    # - target: [0.,0.06,0]
+    #   position: [0,-0.15,0]
+    # - target: [0,0.11,0]
+    #   position: [0,-0.3,0]
+    # - target: [0,-0.06,0]
+    #   position: [0,0.15,0]
+    # - target: [0,-0.11,0]
+    #   position: [0,0.3,0]
+    # - target: [0,0.5,0]
+    #   position: [0,0.3,0]
+    # - target: [0,-0.5,0]
+    #   position: [0,-0.3,0]
 lr_pos: 0.001
-lr_patch: 0.01
+lr_patch: 0.001
 prob_weight: 1.0
 num_hl_iter: 100
 num_pos_restarts: 3
@@ -21,10 +43,9 @@ num_patch_epochs: 1
 batch_size: 32
 num_patches: 2
 scale_min: 0.2
-scale_max: 0.7
+scale_max: 0.4
 patch: 
   mode: 'random'  # face, white, random
-  size: [80, 80] # patch size in [height, width]
   path: 'src/custom_patches/custom_patch_96x160.npy' # if mode == 'face' set a path, otherwise path is ignored
 mode: "joint" # fixed, joint, split, hybrid
-quantized: false
+quantized: true
