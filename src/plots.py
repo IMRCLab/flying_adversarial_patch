@@ -52,7 +52,7 @@ def plot_results(path, targets, gen_detailed):
     num_patches = settings["num_patches"]
 
     last_patch = np.load(path / f'last_patch.npy')
-    sf, tx, ty = np.load(path / f'position_norm.npy')
+    sf, tx, ty = np.load(path / f'positions_norm.npy')
 
     print('generating detailed')
     if gen_detailed:

@@ -1,4 +1,4 @@
-path: 'results/dataset'
+path: 'results/yolo_dataset'
 # +x is distance
 # +y is left
 # +z is top

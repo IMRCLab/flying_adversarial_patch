@@ -74,13 +74,13 @@ def get_best_target_pos(patch, patch_path, dataset, model, device):
     return targets[idx_best].detach().cpu().numpy(), coeffs[idx_best]
 
 
-def train(idx_start=0, idx_end=100):
-    with open('dataset.yaml') as f:
-        settings = yaml.load(f, Loader=yaml.FullLoader)
-    
+def train(idx_start=0, idx_end=100, model='frontnet'):
     for i in range(idx_start, idx_end):
+        with open('dataset.yaml') as f:
+            settings = yaml.load(f, Loader=yaml.FullLoader)
         patch_size = settings['patch']['size']
-        path = Path(f'results/dataset{patch_size[0]}x{patch_size[1]}/{i}/')
+        path = Path(f'{settings['path']}/{patch_size[0]}x{patch_size[1]}/{i}/')
+        # print(path)
 
         targets = [values for _, values in settings['targets'].items()]
         targets = np.array(targets, dtype=float).T
@@ -102,8 +102,9 @@ def train(idx_start=0, idx_end=100):
         with open(path / 'settings.yaml', 'w') as f:
             yaml.dump(settings, f)
 
-        command = shlex.split(f"sbatch dataset.sh {str(path / "settings.yaml")}")
+        command = shlex.split(f"sbatch dataset.sh {str(path / "settings.yaml")} {model}")
         subprocess.run(command)
+        del settings
 
 def save_pickle(idx_start=0, idx_end=100):
     with open('dataset.yaml') as f:
@@ -171,6 +172,7 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', type=str, choices=['train', 'save'])
     parser.add_argument('idx', type=int, metavar='N', nargs='+', default=[100])
+    parser.add_argument('--model', type=str, default='frontnet', choices=['frontnet', 'yolov5'])
     args = parser.parse_args()
 
 
@@ -181,7 +183,7 @@ if __name__=="__main__":
         idx_start, idx_end = np.sort(args.idx)
 
     if args.mode == 'train':
-        train(idx_start, idx_end)
+        train(idx_start, idx_end, args.model)
     
     if args.mode == 'save':
         save_pickle(idx_start, idx_end)
