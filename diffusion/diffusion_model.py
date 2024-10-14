@@ -73,7 +73,7 @@ class PositionalEncoding(nn.Module):
 
 
 class TargetEncoding(nn.Module):
-    def __init__(self, patch_size: [int, int], embed_channels: int = 1):
+    def __init__(self, patch_size: tuple[int, int], embed_channels: int = 1):
         super().__init__()
 
         # the whole purpose of this is to learn to encode the target 
@@ -340,14 +340,14 @@ class DiffusionModel():
                 loss.backward()
                 optimizer.step()
 
-                if (epoch+1) % 10 == 0:
-                    mean_loss = np.mean(np.array(losses))
-                    losses = []
-                    print("Epoch %d,\t Loss %f " % (epoch+1, mean_loss))
+            if (epoch+1) % 10 == 0:
+                mean_loss = np.mean(np.array(losses))
+                losses = []
+                print("Epoch %d,\t Loss %f " % (epoch+1, mean_loss))
 
         return all_losses
 
-    def sample(self, n_samples: int, targets: torch.tensor, device: torch.device, patch_size: (int, int), n_steps: int=1_000):
+    def sample(self, n_samples: int, targets: torch.tensor, device: torch.device, patch_size: tuple[int, int], n_steps: int=1_000):
         """Alg 2 from the DDPM paper."""
         self.model.eval()
         with torch.no_grad():
@@ -369,15 +369,28 @@ class DiffusionModel():
 
     def load(self, path):
         self.model.load_state_dict(torch.load(path, map_location=self.device))
+
+    def save(self, path):
+        torch.save(self.model.state_dict(), path)
     
     
 if __name__ == '__main__':
 
     import pickle
+    import argparse
+    import os
     import matplotlib.pyplot as plt
 
-    with open('diffusion/FAP_combined.pickle', 'rb') as f:
-        data = pickle.load(f)    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--datasets', type=str, nargs='+', required=True, help='Paths to the dataset pickle files.')
+    parser.add_argument('--epochs', type=int, default=1_000, help='Number of epochs to train.')
+    parser.add_argument('--output', type=str, default='trained_model.pth', help='Path to save the model.')
+    args = parser.parse_args()
+
+    data = []
+    for dataset_path in args.datasets:
+        with open(dataset_path, 'rb') as f:
+            data += pickle.load(f)
 
 
     patches = []
@@ -395,6 +408,8 @@ if __name__ == '__main__':
     patches = torch.tensor(patches).unsqueeze(1)
     targets = torch.tensor(targets)
 
+    # print(patches.shape)
+
     # Define dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     dataset = torch.utils.data.TensorDataset(patches, targets)
@@ -407,11 +422,10 @@ if __name__ == '__main__':
 
     # training
     print("Start training..")
-    all_losses = model.train(loader, device, 2, denoising_steps=1_000)
-
-
-
-    torch.save(model.state_dict(), f'diffusion/diffusion_model.pth')
+    all_losses = model.train(loader, device, nepochs=args.epochs, denoising_steps=1_000)
+    
+    os.makedirs('results/diffusion_training', exist_ok=True)
+    model.save(f'results/diffusion_training/{args.output}')
     
     n_samples = 5
     x = np.random.uniform(0,2,n_samples)
@@ -420,7 +434,7 @@ if __name__ == '__main__':
 
     r_targets = torch.tensor(np.stack((x, y, z)).T, dtype=torch.float32)
 
-    samples = model.sample(n_samples, r_targets, device, patch_size=patch_size, n_steps=1_000)
+    samples = model.sample(n_samples, r_targets, device, patch_size=patch_size, n_steps=1_000).detach().to('cpu').numpy()
     print(samples.min(), samples.max())
 
     
@@ -438,10 +452,12 @@ if __name__ == '__main__':
     # #     axs_gt[i].imshow(gt_patch, cmap='gray')
     # #     axs_gt[i].set_title(f'ground truth {i}')
 
-    # fig = plt.figure(constrained_layout=True)
-    # axs_samples = fig.subplots(1, n_samples)
-    # for i, sample in enumerate(samples):
-    #     axs_samples[i].imshow(sample[0], cmap='gray')
-    #     axs_samples[i].set_title(f'sample {i}')
-    # fig.savefig(f'samples_conditioning_4_{patch_size[0]}x{patch_size[1]}.png', dpi=200)
-    # plt.show()
+    
+
+    fig = plt.figure(constrained_layout=True)
+    axs_samples = fig.subplots(1, n_samples)
+    for i, sample in enumerate(samples):
+        axs_samples[i].imshow(sample[0], cmap='gray')
+        axs_samples[i].set_title(f'sample {i}')
+    fig.savefig(f'results/diffusion_training/samples1.png', dpi=200)
+    plt.show()
