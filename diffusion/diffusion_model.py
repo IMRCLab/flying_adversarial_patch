@@ -363,12 +363,12 @@ class DiffusionModel():
                 x_t = 1 / alphas[t]**.5 * (x_t - (betas[t]/(1-ab_t)**.5).unsqueeze(2).unsqueeze(2) * model_prediction)
                 x_t += betas[t]**0.5 * z
 
-            x_t = (x_t - torch.min(x_t)) / (torch.max(x_t) - torch.min(x_t)) # normalize
+            x_t = torch.stack([(x - torch.min(x)) / (torch.max(x) - torch.min(x)) for x in x_t]) # normalize
             return x_t
 
 
     def load(self, path):
-        self.model.load_state_dict(torch.load(path, map_location=self.device))
+        self.model.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
 
     def save(self, path):
         torch.save(self.model.state_dict(), path)

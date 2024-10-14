@@ -2,13 +2,21 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from diffusion.diffusion_model import DiffusionModel
+from diffusion_model import DiffusionModel
 
 from torchsummary import summary
 
 if __name__ == '__main__':
     from pathlib import Path
     import pickle
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(description='Evaluate visual results of the diffusion model.')
+    parser.add_argument('--model_path', type=str, required=True, help='Path to the model file.')
+    parser.add_argument('--dataset_path', type=str, required=True, help='Path to the dataset pickle file.')
+    parser.add_argument('--output', type=str, default='eval_visual.pdf', help='Path to save the visual evaluation.')
+    args = parser.parse_args()
 
     np.random.seed(2562)
     torch.manual_seed(2562)
@@ -17,7 +25,7 @@ if __name__ == '__main__':
     n_samples = 4
 
     model = DiffusionModel(device)
-    model.load('conditioned_unet_80x80_1000_3256i_255.pth')
+    model.load(args.model_path)
 
     # model = UNet(in_size=1, out_size=1, device=device)
     # model.to(device)
@@ -25,7 +33,7 @@ if __name__ == '__main__':
     # model.load_state_dict(torch.load('conditioned_unet_80x80_1000_3256i_255.pth', map_location=device))
     # model.eval()
 
-    with open('data/FAP_combined.pickle', 'rb') as f:
+    with open(args.dataset_path, 'rb') as f:
         data = pickle.load(f)
     gt_patches = []
     gt_targets = []
@@ -129,4 +137,6 @@ if __name__ == '__main__':
     # axs[1][1].imshow(diffusion_patches.detach().cpu().numpy()[random_idx[1]][0], cmap='gray')
 
     # # plt.tight_layout()
-    fig.savefig(f'eval/eval_visual_v2.pdf', dpi=200)
+    out_path = Path(f'eval/{args.output}')
+    os.makedirs(out_path.parent, exist_ok=True)
+    fig.savefig(out_path, dpi=200)
