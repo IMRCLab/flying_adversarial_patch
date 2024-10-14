@@ -31,6 +31,9 @@ def load_targets(patch_path):
     targets = [values for _, values in settings['targets'].items()]
     targets = np.array(targets, dtype=float).T
     targets = torch.from_numpy(targets).float().unsqueeze(0)
+
+    if len(targets.shape) > 2.:
+        targets = targets.squeeze(0)
     return targets
 
 def get_coeffs(patch_path):
@@ -106,25 +109,35 @@ def train(idx_start=0, idx_end=100, model='frontnet'):
         subprocess.run(command)
         del settings
 
-def save_pickle(idx_start=0, idx_end=100):
+def save_pickle(idx_start=0, idx_end=100, model='frontnet'):
     with open('dataset.yaml') as f:
         settings = yaml.load(f, Loader=yaml.FullLoader)
     
     patch_size = settings['patch']['size']
-    path = Path(f'results/fine-tuning80x80/hl_iter_10/')
+    path = Path(f'results/yolo_dataset/80x80/')
 
     file_paths = list(path.glob('[0-9]*/patches.npy'))
     file_paths.sort(key=lambda path: int(path.parent.name))
 
-    from util import load_model, load_dataset
-    model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
-    model_config = '160x32'
+    print(len(file_paths))
+
+    from util import load_dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     dataset_path = "pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle"
     dataset = load_dataset(dataset_path, batch_size=1, train=False, train_set_size=0.95)
 
+    if model == 'frontnet':
+        from util import load_model
+        model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
+        model_config = '160x32'
+        model = load_model(model_path, device, model_config)
+    else:
+        from yolo_bounding import YOLOBox
+        model = YOLOBox()
+        model.to(device)
 
+    # print(model)
     
     patches = np.array([np.load(file_path)[-1][0][0] for file_path in file_paths[idx_start:idx_end]]) * 255.
     print(patches.shape, patches.min(), patches.max())
@@ -143,13 +156,21 @@ def save_pickle(idx_start=0, idx_end=100):
         losses = []
         patch = torch.tensor(patch, device=device).float().unsqueeze(0).unsqueeze(0)
         Ts = get_Ts(p_coeffs)
+        
         for idx_target in range(len(p_targets)):
             T = Ts[idx_target]
             mod_img_pt = place_patch(all_images.to(patch.device), patch.repeat((len(all_images), 1, 1, 1)), T.unsqueeze(0).repeat(len(all_images), 1, 1).to(patch.device), random_perspection=False) 
-            x, y, z, yaw = model(mod_img_pt)
-            predicted_pose = torch.hstack((x, y, z)).detach().cpu()
-            # print(predicted_pose, target)
-            losses.append(torch.nn.functional.mse_loss(p_targets[idx_target].repeat(len(all_images), 1).detach().cpu(), predicted_pose).item())
+            if model == 'frontnet':
+                x, y, z, yaw = model(mod_img_pt)
+                predicted_pose = torch.hstack((x, y, z)).detach().cpu()
+            else: 
+                predicted_pose = model(mod_img_pt)
+            # print(all_images.shape)
+            # print(predicted_pose.shape)
+            # print(p_targets, p_targets.shape, p_targets[idx_target], p_targets[idx_target].shape)
+            
+            # print(p_targets[idx_target].repeat(len(all_images), 1).shape)
+            losses.append(torch.nn.functional.mse_loss(p_targets[idx_target].repeat(len(all_images), 1), predicted_pose).detach().cpu().item())
         
         best_targets.append(p_targets[np.argmin(losses)].detach().cpu().numpy())
         best_coeffs.append(p_coeffs[np.argmin(losses)])
@@ -163,8 +184,8 @@ def save_pickle(idx_start=0, idx_end=100):
     # out = np.array([get_best_target_pos(patch, path, dataset, model, device) for patch, path in zip(patches, file_paths[idx_start:idx_end+1])])
     # targets, positions = np.split(out, 2, axis=1)
     
-    # # print(patches.shape)
-    with open('80x80patches_fine_tuning.pickle', 'wb') as f:
+    print(patches.shape)
+    with open('yolopatches.pickle', 'wb') as f:
         pickle.dump([[patch/255., target, position] for patch, target, position in zip(patches, targets, positions)], f, pickle.HIGHEST_PROTOCOL)
 
 
@@ -186,4 +207,4 @@ if __name__=="__main__":
         train(idx_start, idx_end, args.model)
     
     if args.mode == 'save':
-        save_pickle(idx_start, idx_end)
+        save_pickle(idx_start, idx_end, args.model)
