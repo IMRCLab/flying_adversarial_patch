@@ -427,44 +427,45 @@ def targeted_attack_position(dataset, patch, model, target, lr=3e-2, include_sta
     return best_scaling, best_tx, best_ty, best_loss
 
 def calc_eval_loss(dataset, patch, transformation_matrix, model, target, model_name='frontnet', quantized=False):
-    actual_loss = torch.tensor(0.).to(patch.device)
+    with torch.no_grad():
+        actual_loss = torch.tensor(0.).to(patch.device)
 
-    mask = torch.isnan(target)
-    target = torch.where(mask, torch.tensor(0., dtype=torch.float32), target)
+        mask = torch.isnan(target)
+        target = torch.where(mask, torch.tensor(0., dtype=torch.float32), target)
 
-    for _, data in enumerate(dataset):
-        batch, _ = data
-        batch = batch.to(patch.device) / 255. # limit images to range [0-1]
+        for _, data in enumerate(dataset):
+            batch, _ = data
+            batch = batch.to(patch.device) / 255. # limit images to range [0-1]
 
-        mod_img = place_patch(batch, patch, transformation_matrix)
-        mod_img *= 255. # convert input images back to range [0-255.]
-        mod_img.clamp_(0., 255.)
-        if quantized:
-            mod_img.floor_()
+            mod_img = place_patch(batch, patch, transformation_matrix)
+            mod_img *= 255. # convert input images back to range [0-255.]
+            mod_img.clamp_(0., 255.)
+            if quantized:
+                mod_img.floor_()
 
 
-        if model_name == 'frontnet':
-            # predict x, y, z, yaw
-            x, y, z, phi = model(mod_img)
+            if model_name == 'frontnet':
+                # predict x, y, z, yaw
+                x, y, z, phi = model(mod_img)
 
-            # target_losses.append(torch.mean(all_l2))
-            # prepare shapes for MSE loss
-            # TODO: improve readbility!
-            pred = torch.stack([x, y, z])
-            pred = pred.squeeze(2).mT
-        else:
-            pred = model(mod_img)
+                # target_losses.append(torch.mean(all_l2))
+                # prepare shapes for MSE loss
+                # TODO: improve readbility!
+                pred = torch.stack([x, y, z])
+                pred = pred.squeeze(2).mT
+            else:
+                pred = model(mod_img)
 
-        # only target x,y and z which are previously chosen, otherwise keep x/y/z to prediction
-        #target_batch = torch.where(torch.isnan(target_batch), pred, target_batch)
-        target_batch = (pred * mask) + target
+            # only target x,y and z which are previously chosen, otherwise keep x/y/z to prediction
+            #target_batch = torch.where(torch.isnan(target_batch), pred, target_batch)
+            target_batch = (pred * mask) + target
+            
+            loss = mse_loss(target_batch, pred)
+            actual_loss += loss.clone().detach()
         
-        loss = mse_loss(target_batch, pred)
-        actual_loss += loss.clone().detach()
-    
-    actual_loss /= len(dataset)
+        actual_loss /= len(dataset)
 
-    return actual_loss
+        return actual_loss
 
 def generate_targets(num_targets):
     cam = Camera('misc/camera_calibration/calibration.yaml')
@@ -485,17 +486,18 @@ def generate_targets(num_targets):
     return targets
 
 def calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, model_name='frontnet', quantized=False):
-    test_loss = []
-    for target_idx, target in enumerate(targets):
-        test_losses_per_patch = []
-        for patch_idx in range(len(patch)):
-            scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
-            transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(patch.device)
+    with torch.no_grad():
+        test_loss = []
+        for target_idx, target in enumerate(targets):
+            test_losses_per_patch = []
+            for patch_idx in range(len(patch)):
+                scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
+                transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(patch.device)
 
-            test_losses_per_patch.append(calc_eval_loss(test_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, model_name=model_name, quantized=quantized))
-        # only store the best loss per target
-        test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
-    return time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()
+                test_losses_per_patch.append(calc_eval_loss(test_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, model_name=model_name, quantized=quantized))
+            # only store the best loss per target
+            test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
+        return time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()
 
 def calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, quantized=False):
     test_loss = []
@@ -668,10 +670,9 @@ if __name__=="__main__":
     # A[0,0:2] = True
     # A[1,2:4] = True
     # print(A)
-
-    anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, quantized=quantized))
-    print("Anytime losses: ", anytime_losses)
-        
+    anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, model_name=args.model, quantized=quantized))
+    # print("Anytime losses: ", anytime_losses)
+    
     for train_iteration in trange(num_hl_iter):
         anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, model_name=args.model, quantized=quantized))
         torch.cuda.empty_cache()
@@ -837,67 +838,61 @@ if __name__=="__main__":
     #         loss_base = torch.tensor([mse_loss(target_batch[i], pred_base[i]) for i in range(len(test_batch))])
 
     if gen_detailed:
-        print("Evaluation")
-        boxplot_data = []
-        #target_mask = torch.tensor(target_mask).to(patch.device)
-        for target_idx, target in enumerate(targets):
-            if args.model == 'frontnet':
-                pred_base = model(test_batch.float() * 255.)
-                pred_base = torch.stack(pred_base[:3]).squeeze(2).mT
-            else:
-                pred_base = model(test_batch.float() * 255.)
-            target_batch = target.repeat(len(test_batch), 1)
-            target_batch = torch.where(torch.isnan(target_batch), pred_base, target_batch)
-            loss_base = torch.tensor([mse_loss(target_batch[i], pred_base[i]) for i in range(len(test_batch))])
-
-    #             mod_img = place_patch(test_batch, patch_start[patch_idx:patch_idx+1], transformation_matrix)
-    #             mod_img *= 255. # convert input images back to range [0-255.]
-    #             mod_img.clamp_(0., 255.)
-    #             pred_start_patch = model(mod_img.float())
-    #             pred_start_patch = torch.stack(pred_start_patch[:3]).squeeze(2).mT
-    #             target_batch = target.repeat(len(test_batch), 1)
-    #             target_batch = torch.where(torch.isnan(target_batch), pred_start_patch, target_batch)
-    #             loss_start_patch = torch.tensor([mse_loss(target_batch[i], pred_start_patch[i]) for i in range(len(test_batch))])
-    #             if torch.sum(loss_start_patch) < loss_start_patch_best_value:
-    #                 loss_start_patch_best_value = torch.sum(loss_start_patch)
-    #                 loss_start_patch_best = loss_start_patch
-
-                mod_img = place_patch(test_batch, patch_start[patch_idx:patch_idx+1], transformation_matrix)
-                mod_img *= 255. # convert input images back to range [0-255.]
-                mod_img.clamp_(0., 255.)
+        with torch.no_grad():
+            test_batch, test_gt = test_set.dataset[:]
+            test_batch = test_batch.to(device) / 255. # limit images to range [0-1]
+            boxplot_data = []
+            #target_mask = torch.tensor(target_mask).to(patch.device)
+            for target_idx, target in enumerate(targets):
                 if args.model == 'frontnet':
-                    pred_start_patch = model(mod_img.float())
-                    pred_start_patch = torch.stack(pred_start_patch[:3]).squeeze(2).mT
+                    pred_base = model(test_batch.float() * 255.)
+                    pred_base = torch.stack(pred_base[:3]).squeeze(2).mT
                 else:
-                    pred_start_patch = model(mod_img.float())
-                
+                    pred_base = model(test_batch.float() * 255.)
                 target_batch = target.repeat(len(test_batch), 1)
-                target_batch = torch.where(torch.isnan(target_batch), pred_start_patch, target_batch)
-                loss_start_patch = torch.tensor([mse_loss(target_batch[i], pred_start_patch[i]) for i in range(len(test_batch))])
-                if torch.sum(loss_start_patch) < loss_start_patch_best_value:
-                    loss_start_patch_best_value = torch.sum(loss_start_patch)
-                    loss_start_patch_best = loss_start_patch
+                target_batch = torch.where(torch.isnan(target_batch), pred_base, target_batch)
+                loss_base = torch.tensor([mse_loss(target_batch[i], pred_base[i]) for i in range(len(test_batch))])
 
-                mod_img = place_patch(test_batch, patch[patch_idx:patch_idx+1], transformation_matrix)
-                mod_img *= 255. # convert input images back to range [0-255.]
-                mod_img.clamp_(0., 255.)
-                if args.model == 'frontnet':
-                    pred_opt_patch = model(mod_img.float())
-                    pred_opt_patch = torch.stack(pred_opt_patch[:3]).squeeze(2).mT
-                else:
-                    pred_opt_patch = model(mod_img.float())
-                    
-                target_batch = target.repeat(len(test_batch), 1)
-                target_batch = torch.where(torch.isnan(target_batch), pred_opt_patch, target_batch)
-                loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
-                if torch.sum(loss_opt_patch) < loss_opt_patch_best_value:
-                    loss_opt_patch_best_value = torch.sum(loss_opt_patch)
-                    loss_opt_patch_best = loss_opt_patch
+                loss_start_patch_best = None
+                loss_start_patch_best_value = np.inf
+                loss_opt_patch_best = None
+                loss_opt_patch_best_value = np.inf
+                for patch_idx in range(num_patches):
+                    scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
+                    transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(device)
 
-            boxplot_data.append(torch.stack([loss_base.detach().cpu(), loss_start_patch_best.detach().cpu(), loss_opt_patch_best.detach().cpu()]))
+                    mod_img = place_patch(test_batch, patch_start[patch_idx:patch_idx+1], transformation_matrix)
+                    mod_img *= 255. # convert input images back to range [0-255.]
+                    mod_img.clamp_(0., 255.)
+                    if args.model == 'frontnet':
+                        pred_start_patch = model(mod_img.float())
+                        pred_start_patch = torch.stack(pred_start_patch[:3]).squeeze(2).mT
+                    else:
+                        pred_start_patch = model(mod_img.float())
+                    target_batch = target.repeat(len(test_batch), 1)
+                    target_batch = torch.where(torch.isnan(target_batch), pred_start_patch, target_batch)
+                    loss_start_patch = torch.tensor([mse_loss(target_batch[i], pred_start_patch[i]) for i in range(len(test_batch))])
+                    if torch.sum(loss_start_patch) < loss_start_patch_best_value:
+                        loss_start_patch_best_value = torch.sum(loss_start_patch)
+                        loss_start_patch_best = loss_start_patch
 
+                    mod_img = place_patch(test_batch, patch[patch_idx:patch_idx+1], transformation_matrix)
+                    mod_img *= 255. # convert input images back to range [0-255.]
+                    mod_img.clamp_(0., 255.)
+                    if args.model == 'frontnet':
+                        pred_opt_patch = model(mod_img.float())
+                        pred_opt_patch = torch.stack(pred_opt_patch[:3]).squeeze(2).mT
+                    else:
+                        pred_opt_patch = model(mod_img.float())
+                    target_batch = target.repeat(len(test_batch), 1)
+                    target_batch = torch.where(torch.isnan(target_batch), pred_opt_patch, target_batch)
+                    loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
+                    if torch.sum(loss_opt_patch) < loss_opt_patch_best_value:
+                        loss_opt_patch_best_value = torch.sum(loss_opt_patch)
+                        loss_opt_patch_best = loss_opt_patch
 
-        # np.save(path / 'boxplot_data.npy', torch.stack(boxplot_data).cpu().numpy())
+                boxplot_data.append(torch.stack([loss_base.detach().cpu(), loss_start_patch_best.detach().cpu(), loss_opt_patch_best.detach().cpu()]))
+                # np.save(path / 'boxplot_data.npy', torch.stack(boxplot_data).cpu().numpy())
 
     #     # STLC Analysis
     #     for target_idx, target in enumerate(targets):
