@@ -112,12 +112,12 @@ def train(idx_start=0, idx_end=100, model='frontnet'):
         subprocess.run(command)
         del settings
 
-def save_pickle(idx_start=0, idx_end=100, model='frontnet'):
+def read_data(path, idx_start=0, idx_end=100, model='frontnet'):
     with open('dataset.yaml') as f:
         settings = yaml.load(f, Loader=yaml.FullLoader)
     
     patch_size = settings['patch']['size']
-    path = Path(f'results/yolo_dataset/80x80/')
+    path = Path(path)
 
     file_paths = list(path.glob('[0-9]*/patches.npy'))
     file_paths.sort(key=lambda path: int(path.parent.name))
@@ -156,28 +156,29 @@ def save_pickle(idx_start=0, idx_end=100, model='frontnet'):
 
     best_targets = []
     best_coeffs = []
-    for i, (patch, p_targets, p_coeffs) in enumerate(zip(patches, targets, coeffs)):
-        losses = []
-        patch = torch.tensor(patch, device=device).float().unsqueeze(0).unsqueeze(0)
-        Ts = get_Ts(p_coeffs)
-        
-        for idx_target in range(len(p_targets)):
-            T = Ts[idx_target]
-            mod_img_pt = place_patch(all_images.to(patch.device), patch.repeat((len(all_images), 1, 1, 1)), T.unsqueeze(0).repeat(len(all_images), 1, 1).to(patch.device), random_perspection=False) 
-            if model == 'frontnet':
-                x, y, z, yaw = model(mod_img_pt)
-                predicted_pose = torch.hstack((x, y, z)).detach().cpu()
-            else: 
-                predicted_pose = model(mod_img_pt)
-            # print(all_images.shape)
-            # print(predicted_pose.shape)
-            # print(p_targets, p_targets.shape, p_targets[idx_target], p_targets[idx_target].shape)
+    with torch.no_grad():
+        for i, (patch, p_targets, p_coeffs) in enumerate(zip(patches, targets, coeffs)):
+            losses = []
+            patch = torch.tensor(patch, device=device).float().unsqueeze(0).unsqueeze(0)
+            Ts = get_Ts(p_coeffs)
             
-            # print(p_targets[idx_target].repeat(len(all_images), 1).shape)
-            losses.append(torch.nn.functional.mse_loss(p_targets[idx_target].repeat(len(all_images), 1), predicted_pose).detach().cpu().item())
-        
-        best_targets.append(p_targets[np.argmin(losses)].detach().cpu().numpy())
-        best_coeffs.append(p_coeffs[np.argmin(losses)])
+            for idx_target in range(len(p_targets)):
+                T = Ts[idx_target]
+                mod_img_pt = place_patch(all_images.to(patch.device), patch.repeat((len(all_images), 1, 1, 1)), T.unsqueeze(0).repeat(len(all_images), 1, 1).to(patch.device), random_perspection=False) 
+                if model == 'frontnet':
+                    x, y, z, yaw = model(mod_img_pt)
+                    predicted_pose = torch.hstack((x, y, z)).detach().cpu()
+                else: 
+                    predicted_pose = model(mod_img_pt)
+                # print(all_images.shape)
+                # print(predicted_pose.shape)
+                # print(p_targets, p_targets.shape, p_targets[idx_target], p_targets[idx_target].shape)
+                
+                # print(p_targets[idx_target].repeat(len(all_images), 1).shape)
+                losses.append(torch.nn.functional.mse_loss(p_targets[idx_target].repeat(len(all_images), 1), predicted_pose).detach().cpu().item())
+            
+            best_targets.append(p_targets[np.argmin(losses)].detach().cpu().numpy())
+            best_coeffs.append(p_coeffs[np.argmin(losses)])
 
     targets = np.array(best_targets)
     positions = np.array(best_coeffs)
@@ -185,10 +186,12 @@ def save_pickle(idx_start=0, idx_end=100, model='frontnet'):
     print(targets.shape)
     print(positions.shape)
 
+    return patches, targets, positions
     # out = np.array([get_best_target_pos(patch, path, dataset, model, device) for patch, path in zip(patches, file_paths[idx_start:idx_end+1])])
     # targets, positions = np.split(out, 2, axis=1)
     
-    print(patches.shape)
+def save_pickle(path, idx_start=0, idx_end=100, model='frontnet'):
+    patches, targets, positions = read_data(path, idx_start, idx_end, model)
     with open('yolopatches.pickle', 'wb') as f:
         pickle.dump([[patch/255., target, position] for patch, target, position in zip(patches, targets, positions)], f, pickle.HIGHEST_PROTOCOL)
 
@@ -197,6 +200,7 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', type=str, choices=['train', 'save'])
     parser.add_argument('idx', type=int, metavar='N', nargs='+', default=[100])
+    parser.add_argument('--out', type=str, default='dataset.pickle')
     parser.add_argument('--model', type=str, default='frontnet', choices=['frontnet', 'yolov5'])
     args = parser.parse_args()
 
