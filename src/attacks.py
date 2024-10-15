@@ -667,7 +667,7 @@ if __name__=="__main__":
     stats_all = []
     stats_p_all = []
 
-    positions = torch.FloatTensor(len(targets), num_patches, 3, 1).uniform_(-1., 1.).to(device)
+    # positions = torch.FloatTensor(len(targets), num_patches, 3, 1).uniform_(-1., 1.).to(device)
 
     optimization_pos_vectors.append(positions)
 
@@ -805,7 +805,11 @@ if __name__=="__main__":
     # prepare data for plots
     # normalize scale factor, tx and ty for plots
 
+    print(optimization_pos_vectors.shape)
+
     norm_optimized_vecs = [norm_transformation(optimization_pos_vectors[i].mT[..., 0], optimization_pos_vectors[i].mT[..., 1], optimization_pos_vectors[i].mT[..., 2], scale_min, scale_max) for i in range(len(optimization_pos_vectors))]
+
+    print(norm_optimized_vecs)
 
     all_sf = torch.stack([norm_optimized_vecs[i][0] for i in range(len(norm_optimized_vecs))])
     all_tx = torch.stack([norm_optimized_vecs[i][1] for i in range(len(norm_optimized_vecs))])
