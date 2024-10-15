@@ -499,18 +499,18 @@ def calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_
             test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
         return time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()
 
-def calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, quantized=False):
-    test_loss = []
-    for target_idx, target in enumerate(targets):
-        test_losses_per_patch = []
-        for patch_idx in range(len(patch)):
-            scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
-            transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(patch.device)
+# def calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, quantized=False):
+#     test_loss = []
+#     for target_idx, target in enumerate(targets):
+#         test_losses_per_patch = []
+#         for patch_idx in range(len(patch)):
+#             scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
+#             transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(patch.device)
 
-            test_losses_per_patch.append(calc_eval_loss(test_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, quantized=quantized))
-        # only store the best loss per target
-        test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
-    return time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()
+#             test_losses_per_patch.append(calc_eval_loss(test_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, quantized=quantized))
+#         # only store the best loss per target
+#         test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
+#     return time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()
 
 
 if __name__=="__main__":
@@ -630,13 +630,26 @@ if __name__=="__main__":
     if settings['patch']['mode'] == 'diffusion':
         diffusion_path = settings['patch']['path']
         # p_number = int(path.name)
-        patch_start = np.load(diffusion_path)#[p_number]
-        patch_start = torch.from_numpy(patch_start).to(device) / 255.
-        patch_start = torch.stack([patch_start.clone() for _ in range(num_patches)])
+        # patch_start = np.load(diffusion_path)#[p_number]
+        # patch_start = torch.from_numpy(patch_start).to(device) / 255.
+        # patch_start = torch.stack([patch_start.clone() for _ in range(num_patches)])
         # print(patch_start.shape)
+        import sys
+        sys.path.insert(0,'diffusion/')
+        from diffusion_model import DiffusionModel
+        diffusion_model = DiffusionModel(device)
+        diffusion_model.load(f'diffusion/{args.model}_diffusion.pth')
+        patch_start = diffusion_model.sample(num_patches, targets.float(), device, patch_size=[80, 80], n_steps=1_000)
+        print(patch_start.shape)
+        del diffusion_model
         positions = np.array(settings['patch']['position'])
         positions = torch.from_numpy(positions).repeat(len(targets), num_patches, 1).unsqueeze(3).to(device)
-        anytime_loss = np.load(settings['path'] + '/anytime_loss.npy')
+        
+        try:
+            anytime_loss = np.load(settings['path'] + '/anytime_loss.npy')
+        except FileNotFoundError:
+            anytime_loss = np.array([[time(), np.inf]])
+
         time_start -= anytime_loss[-1][0]
 
     optimization_pos_losses = []
@@ -838,6 +851,7 @@ if __name__=="__main__":
     #         loss_base = torch.tensor([mse_loss(target_batch[i], pred_base[i]) for i in range(len(test_batch))])
 
     if gen_detailed:
+        torch.cuda.empty_cache()
         with torch.no_grad():
             test_batch, test_gt = test_set.dataset[:]
             test_batch = test_batch.to(device) / 255. # limit images to range [0-1]

@@ -14,7 +14,7 @@ import pickle
 
 from time import sleep
 
-def run_attack(settings_path):
+def run_attack(settings_path, model='frontnet'):
     #with tempfile.TemporaryDirectory() as tmpdirname:
     #    filename = Path(tmpdirname) / 'settings.yaml'
 
@@ -26,17 +26,19 @@ def run_attack(settings_path):
     error_file = Path(folder) / "error.out"
 
     # print(job_file)
+    # print(log_file)
+    # print(error_file)
 
     with open(job_file, 'w') as fh:
         fh.writelines("#!/bin/bash\n")
-        fh.writelines("#SBATCH -c 4\n")
+        fh.writelines("#SBATCH -c 6\n")
         fh.writelines("#SBATCH --gres=gpu:1\n")
-        fh.writelines("#SBATCH -p gpu\n")
+        fh.writelines("#SBATCH -p gpu_p100\n")
         fh.writelines(f"#SBATCH --output={log_file}\n")
-        fh.writelines('#SBATCH --time=00:30:00\n\n')
-        # fh.writelines(f"#SBATCH --error={error_file}\n\n")
-        fh.writelines("source /home/hanfeld/.front-env/bin/activate\n")
-        fh.writelines(f"python /home/hanfeld/flying_adversarial_patch/src/attacks.py --file {settings_path}")
+        fh.writelines(f"#SBATCH --error={error_file}\n\n")
+        fh.writelines('#SBATCH --time=01:00:00\n\n')
+        fh.writelines("source /home/hanfeld/.yolopatches/bin/activate\n")
+        fh.writelines(f"python /home/hanfeld/flying_adversarial_patch/src/attacks.py --file {settings_path} --model {model}")
 
     os.system("sbatch %s" %job_file)
     sleep(0.2)
@@ -53,8 +55,12 @@ def inverse_norm(val, minimum, maximum):
     return np.arctanh(2* ((val - minimum) / (maximum - minimum)) - 1)
 
 def main():
+    import os
+    np.random.seed(2562)
     parser = argparse.ArgumentParser()
-    parser.add_argument('--file', default='exp_diffusion.yaml')
+    parser.add_argument('--file', default='exp_finetuning.yaml')
+    parser.add_argument('--model', default='frontnet', choices=['frontnet', 'yolov5'])
+    parser.add_argument('--n_samples', type=int, default=100)
     parser.add_argument('--norun', action='store_true')
     parser.add_argument('--quantized', action='store_true')
     parser.add_argument('-j', type=int, default=4)
@@ -76,13 +82,21 @@ def main():
 
     # rewrite settings according to args
     # also read original settings files to get original targets of ground truth patches
-    gt_path = Path('diffusion/FAP_combined.pickle')
-    gt_indices = np.load('results/fine-tuning80x80/indices.npy') 
+    if args.model == 'frontnet':
+        gt_path = Path('diffusion/FAP_combined.pickle')
+    else:
+        gt_path = Path('diffusion/yolopatches.pickle')
 
-    print(gt_indices)
+    
+    base_settings['path'] = f'results/finetuning/{args.model}'
+    os.makedirs(base_settings['path'], exist_ok = True)
+
         
     with open(gt_path, 'rb') as f:
         data = pickle.load(f)
+
+    gt_indices = np.random.choice(len(data), size=args.n_samples, replace=False)
+    np.save(f'{base_settings['path']}/indices.npy', gt_indices)
 
     gt_targets = []
     gt_positions = []
@@ -119,7 +133,7 @@ def main():
 
     unnorm_positions = np.array(unnorm_positions)
 
-    all_settings = []
+    # all_settings = []
     base_path = Path(base_settings['path'])
     for patch_idx in range(len(gt_indices)):
         s = copy.copy(base_settings)
@@ -135,13 +149,14 @@ def main():
         with open(filename, 'w') as f:
             yaml.dump(s, f)
 
-        all_settings.append(filename)
+        run_attack(filename, args.model)
+        # all_settings.append(filename)
    
     
-    if not args.norun:
-        for settings in all_settings:
-            print(settings)
-            run_attack(settings)
+    # if not args.norun:
+    #     for settings in all_settings:
+    #         # print(settings)
+            
 
 
 
