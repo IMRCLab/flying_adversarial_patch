@@ -726,7 +726,7 @@ if __name__=="__main__":
         elif mode == "fixed":
             pos_losses = [torch.tensor([0.])]
 
-        optimization_pos_vectors.append(positions)
+        # optimization_pos_vectors.append(positions)
         optimization_pos_losses.append(torch.stack(pos_losses))
         # print(optimization_pos_vectors[-1].shape)
         # train_losses.append(torch.as_tensor(loss_per_target))
