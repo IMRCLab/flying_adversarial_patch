@@ -3,7 +3,7 @@ import numpy as np
 import cv2
 import sys
 
-# sys.path.append('./yolov5')
+sys.path.append('src/')
 # print(f'sys.path:')
 # print()
 # for string in sys.path:
@@ -58,7 +58,6 @@ class YOLOBox(nn.Module):
 
         # yolo wants size (320, 640)
         resized_inputs = torch.nn.functional.interpolate(imgs, size=(TENSOR_DEFAULT_WIDTH//2, TENSOR_DEFAULT_WIDTH), mode="bilinear")
-
         output = self.model(resized_inputs)
 
         scale_factor = imgs.size()[3] / TENSOR_DEFAULT_WIDTH
@@ -69,7 +68,7 @@ class YOLOBox(nn.Module):
         soft_scores = soft_scores.unsqueeze(1)
         selected_boxes = torch.bmm(soft_scores, boxes) * scale_factor
 
-        printd('selected ', selected_boxes.shape, selected_boxes.grad_fn)
+        # printd('selected ', selected_boxes.shape, selected_boxes.grad_fn)
 
         # debugging
         if show_imgs:
@@ -94,7 +93,7 @@ class YOLOBox(nn.Module):
 
                 cv2.imwrite(f'person_new_{i}.png', og_img)
 
-        xyzs = self.cam.batch_xyz_from_boxes(selected_boxes.squeeze())
+        xyzs = self.cam.batch_xyz_from_boxes(selected_boxes.squeeze(1))  # only using squeeze() here will cause all dimensions to be deleted if there's only one input image
         return xyzs
     
     def extract_boxes_and_scores(self, yolo_output):
