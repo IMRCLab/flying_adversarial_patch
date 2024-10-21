@@ -241,6 +241,9 @@ if __name__ == '__main__':
         # load diffusion patches
         print('Loading diffusion patches...')
         diffusion_patches, diffusion_targets, diffusion_positions = read_from_folder(f'results/finetuning/{args.model}/hl_iter_10/', idx=0)
+        diffusion_patches /= 255.
+        print(diffusion_patches.shape, diffusion_patches.min(), diffusion_patches.max())
+
         # if not saved before, save as pickle
         # from src.create_dataset import save_pickle
         # save_pickle('results/finetuning/yolov5/hl_iter_10/', diffusion_patches, diffusion_targets, diffusion_positions)
@@ -270,7 +273,7 @@ if __name__ == '__main__':
         all_ft_at_gt = []
         all_ft_at_ft = []
 
-        for i in trange(100):
+        for i in trange(n_samples):
             gt_loss, diffusion_loss, random_loss, ft_at_gt_loss, ft_at_ft_loss = loss_dataset(model, gt_patches[i], diffusion_patches[i], random_patches[i], ft_patches[i], gt_targets[i], gt_positions[i], ft_positions[i], test_set, device, model_name=args.model)
             all_gt.append(gt_loss)
             all_diffusion.append(diffusion_loss)
