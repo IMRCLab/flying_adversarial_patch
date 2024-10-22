@@ -14,7 +14,7 @@ import pickle
 
 from time import sleep, time
 
-def run_attack(settings_path):
+def run_attack(settings_path, model):
     #with tempfile.TemporaryDirectory() as tmpdirname:
     #    filename = Path(tmpdirname) / 'settings.yaml'
 
@@ -33,12 +33,13 @@ def run_attack(settings_path):
         fh.writelines("#SBATCH --gres=gpu:1\n")
         fh.writelines("#SBATCH -p gpu_p100\n")
         fh.writelines(f"#SBATCH --output={log_file}\n")
-        fh.writelines('#SBATCH --time=01:00:00\n\n')
-        # fh.writelines(f"#SBATCH --error={error_file}\n\n")
-        fh.writelines("source /home/hanfeld/.front-env/bin/activate\n")
-        fh.writelines(f"python /home/hanfeld/flying_adversarial_patch/src/attacks.py --file {settings_path}")
+        fh.writelines('#SBATCH --time=01:00:00\n')
+        fh.writelines(f"#SBATCH --error={error_file}\n\n")
+        fh.writelines("source /home/hanfeld/.yolopatches/bin/activate\n")
+        fh.writelines(f"python /home/hanfeld/flying_adversarial_patch/src/attacks.py --file {settings_path} --model {model}")
 
     os.system("sbatch %s" %job_file)
+    # os.system(f"python /home/hanfeld/flying_adversarial_patch/src/attacks.py --file {settings_path} --model {model}")
     # sleep(0.2)
 
 def inverse_norm(val, minimum, maximum):
@@ -50,7 +51,8 @@ def main():
     np.random.seed(2562)
     torch.manual_seed(2562)
     parser = argparse.ArgumentParser()
-    parser.add_argument('--file', default='exp_diffusion.yaml')
+    parser.add_argument('--file', default='exp_heatmap.yaml')
+    parser.add_argument('--model', default='frontnet', choices=['frontnet', 'yolov5'])
     parser.add_argument('--norun', action='store_true')
     parser.add_argument('--diffusion', action='store_true')
     parser.add_argument('-j', type=int, default=4)
@@ -76,23 +78,23 @@ def main():
     y_vals = np.arange(-1, 1 + step_size, step=step_size)
     z_vals = np.arange(-0.5, 0.5 + step_size, step=step_size)
 
-    if args.diffusion:
-        # load all modules for calculating anytime loss directly after sampling the patch
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        from util import load_dataset
-        dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
-        test_set = load_dataset(path=dataset_path, batch_size=base_settings['batch_size'], shuffle=True, drop_last=False, train=False, num_workers=0)
-        from util import load_model
-        model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
-        model_config = '160x32'
-        model = load_model(path=model_path, device=device, config=model_config)
+    # if args.diffusion:
+    #     # load all modules for calculating anytime loss directly after sampling the patch
+    #     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    #     from util import load_dataset
+    #     dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
+    #     test_set = load_dataset(path=dataset_path, batch_size=base_settings['batch_size'], shuffle=True, drop_last=False, train=False, num_workers=0)
+    #     from util import load_model
+    #     model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
+    #     model_config = '160x32'
+    #     model = load_model(path=model_path, device=device, config=model_config)
         
-        from attacks import calc_anytime_loss
+    #     from attacks import calc_anytime_loss
     
-        from diffusion.diffusion_model import DiffusionModel
+    #     from diffusion.diffusion_model import DiffusionModel
         
-    load_time = time()-time_start
-    print(f"took {load_time} s!")
+    # load_time = time()-time_start
+    # print(f"took {load_time} s!")
 
     for i in range(10):
         all_settings = []
@@ -109,8 +111,8 @@ def main():
                 s['targets']['z'] = copy.copy([round(float(z), 2)])
 
                 if args.diffusion:
-                    dif_model = DiffusionModel(device)
-                    dif_model.load('diffusion/diffusion_model.pth')
+                    # dif_model = DiffusionModel(device)
+                    # dif_model.load('diffusion/diffusion_model.pth')
                     s['patch']['mode'] = 'diffusion'
                 
                     # sf = np.random.uniform(scale_min, scale_max)
@@ -126,25 +128,26 @@ def main():
                     position = np.random.uniform(-1., 1., 3)
 
                     s['patch']['position'] = copy.copy(position.tolist())
-                    s['path'] = str(base_path / str(i) / 'diffusion' / str(idx))
+                    s['path'] = str(f'eval/{args.model}/heatmap/{i}/diffusion/{idx}')
                     os.makedirs(s['path'], exist_ok = True)
-                    s['patch']['path'] = s['path'] + '/diffusion_patch.npy'
-                    target = np.array([values for _, values in s['targets'].items()]).T
-                    target = torch.tensor(target, device=device, dtype=torch.float32)
+                    # s['patch']['path'] = s['path'] + '/diffusion_patch.npy'
+                    # target = np.array([values for _, values in s['targets'].items()]).T
+                    # target = torch.tensor(target, device=device, dtype=torch.float32)
 
-                    patch = dif_model.sample(1, target, device, patch_size=s['patch']['size'], n_steps=1_000).to(device) * 255.
-                    np.save(s['patch']['path'], patch[0].cpu().numpy())
-                    position_t = torch.tensor(position).unsqueeze(0).unsqueeze(0).unsqueeze(0).unsqueeze(-1).to(device)
-                    seconds, test_loss = calc_anytime_loss(time_start, test_set, patch, target, model, position_t, scale_min=scale_min, scale_max=scale_max, quantized=False)
-                    print(seconds, test_loss)
+                    # patch = dif_model.sample(1, target, device, patch_size=s['patch']['size'], n_steps=1_000).to(device) * 255.
+                    # np.save(s['patch']['path'], patch[0].cpu().numpy())
+                    # position_t = torch.tensor(position).unsqueeze(0).unsqueeze(0).unsqueeze(0).unsqueeze(-1).to(device)
+                    # seconds, test_loss = calc_anytime_loss(time_start, test_set, patch, target, model, position_t, scale_min=scale_min, scale_max=scale_max, quantized=False)
+                    # print(seconds, test_loss)
                     # sanity check
                     # noise = torch.rand_like(patch, device=device, dtype=patch.dtype) * 255.
                     # seconds, test_loss = calc_anytime_loss(time_start, test_set, patch, target, model, position_t, scale_min=scale_min, scale_max=scale_max, quantized=False)
                     # print(seconds, test_loss)
-                    seconds += load_time
-                    np.save(s['path'] + '/anytime_loss.npy', np.array([[0., np.inf], [seconds, test_loss]]))
+                    # seconds += load_time
+                    # np.save(s['path'] + '/anytime_loss.npy', np.array([[0., np.inf], [seconds, test_loss]]))
                 else:
-                    s['path'] = str(base_path / 'gt' / str(idx))
+                    s['path'] = str(f'eval/{args.model}/heatmap/{i}/gt/{idx}')
+                    s['patch']['mode'] = 'random'
                     os.makedirs(s['path'], exist_ok = True)
 
                 filename = s['path'] + '/settings.yaml'
@@ -153,7 +156,7 @@ def main():
                 
                 all_settings.append(filename)
                 idx += 1
-                run_attack(filename)
+                run_attack(filename, args.model)
             
 
     # print(len(all_settings))

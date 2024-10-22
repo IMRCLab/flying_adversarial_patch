@@ -404,7 +404,7 @@ if __name__ == '__main__':
 
     patch_size = patches.shape[-2:]
 
-    patches = (patches - np.min(patches)) / (np.max(patches) - np.min(patches)) # normalize
+    # patches = np.array([patch - np.min(patch)) / (np.max(patch) - np.min(patch) for patch in patches]) # normalize
     patches = torch.tensor(patches).unsqueeze(1)
     targets = torch.tensor(targets)
 
