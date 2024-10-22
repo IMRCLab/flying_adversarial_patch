@@ -443,7 +443,6 @@ def calc_eval_loss(dataset, patch, transformation_matrix, model, target, model_n
             if quantized:
                 mod_img.floor_()
 
-
             if model_name == 'frontnet':
                 # predict x, y, z, yaw
                 x, y, z, phi = model(mod_img)
@@ -644,13 +643,8 @@ if __name__=="__main__":
         del diffusion_model
         positions = np.array(settings['patch']['position'])
         positions = torch.from_numpy(positions).repeat(len(targets), num_patches, 1).unsqueeze(3).to(device)
-        
-        try:
-            anytime_loss = np.load(settings['path'] + '/anytime_loss.npy')
-        except FileNotFoundError:
-            anytime_loss = np.array([[time(), np.inf]])
 
-        time_start -= anytime_loss[-1][0]
+        # time_start -= anytime_loss[-1][0]
 
     optimization_pos_losses = []
     optimization_pos_vectors = []
@@ -673,7 +667,7 @@ if __name__=="__main__":
 
     # num_patches x bitness x width x height
     patch = patch_start.clone()
-    optimization_patches.append(patch.clone())
+    optimization_patches.append(patch.clone().detach().cpu())
 
     # assignment: we start by assigning all targets to all patches
     A = np.ones((num_patches, len(targets)), dtype=np.bool_)
@@ -683,6 +677,12 @@ if __name__=="__main__":
     # A[0,0:2] = True
     # A[1,2:4] = True
     # print(A)
+
+
+    try:
+        anytime_loss = np.load(settings['path'] + '/anytime_loss.npy')
+    except FileNotFoundError:
+        anytime_loss = np.array([[time(), np.inf]])
     anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, model_name=args.model, quantized=quantized))
     # print("Anytime losses: ", anytime_losses)
     
@@ -699,13 +699,13 @@ if __name__=="__main__":
         elif mode == "joint" or mode == "hybrid":
             patch, loss_patch, positions, stats, stats_p = targeted_attack_joint(train_set, patch, model, optimization_pos_vectors[-1], A, model_name=args.model, targets=targets, lr=lr_patch, epochs=num_patch_epochs, path=path, prob_weight=prob_weight, scale_min=scale_min, scale_max=scale_max, target_offsets=stlc_target_offsets, position_offsets=stlc_position_offsets,
             stlc_weights=stlc_weights)
-            optimization_pos_vectors.append(positions)
+            # optimization_pos_vectors.append(positions)
 
             pos_losses.append(loss_patch)
             stats_all.append(stats)
             stats_p_all.append(stats_p)
 
-        optimization_patches.append(patch.clone())
+        optimization_patches.append(patch.clone().detach().cpu())
         optimization_patch_losses.append(loss_patch)
 
         # NAT: irrelevant for joint
@@ -726,7 +726,7 @@ if __name__=="__main__":
         elif mode == "fixed":
             pos_losses = [torch.tensor([0.])]
 
-        # optimization_pos_vectors.append(positions)
+        optimization_pos_vectors.append(positions)
         optimization_pos_losses.append(torch.stack(pos_losses))
         # print(optimization_pos_vectors[-1].shape)
         # train_losses.append(torch.as_tensor(loss_per_target))
@@ -817,7 +817,7 @@ if __name__=="__main__":
 
     gen_detailed = True
 
-    print('shape', np.shape(optimization_patches))
+    # print('shape', np.shape(optimization_patches))
     # np.save(path / f'last_patch_{args.task}.npy', optimization_patches[-1].cpu().numpy())
     # last_pos = np.array([x.cpu().numpy() for x in norm_optimized_vecs[-1]])
     # np.save(path / f'position_norm_{args.task}.npy', last_pos)
@@ -830,7 +830,7 @@ if __name__=="__main__":
 
     if gen_detailed:
         # save all results in numpy arrays for later use
-        np.save(path / 'patches.npy', optimization_patches.cpu().numpy())
+        np.save(path / 'patches.npy', optimization_patches.detach().cpu().numpy())
         np.save(path / 'patch_losses.npy', optimization_patch_losses.cpu().numpy())
         np.save(path / 'positions.npy', optimization_pos_vectors.cpu().numpy())
         np.save(path / 'positions_norm.npy', np.array([all_sf.cpu().numpy(), all_tx.cpu().numpy(), all_ty.cpu().numpy()]))
