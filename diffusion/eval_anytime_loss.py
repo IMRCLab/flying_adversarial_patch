@@ -1,12 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-
+import argparse
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Plot anytime losses')
+    parser.add_argument('--model', type=str, choices=['frontnet', 'yolov5'], required=True, help='Model to use for evaluation')
+    args = parser.parse_args()
     np.random.seed(2562)
-    path = Path('eval/yolov5/anytime_loss/')
+    path = Path(f'eval/{args.model}/anytime_loss/')
     file_paths_gt = np.array(list(path.glob('gt/[0-9]*/anytime_losses.npy')))
 
     file_paths_diff = np.array(list(path.glob('diffusion/[0-9]*/anytime_losses.npy')))
@@ -75,4 +78,4 @@ if __name__ == '__main__':
     axs.set_yscale('log')
     # axs.set_xlim(left=0, right=10^2)
 
-    fig.savefig(f'eval/yolov5/eval_anytime_loss_3e.pdf', dpi=200)
+    fig.savefig(f'eval/{args.model}/eval_anytime_loss_3e.pdf', dpi=200)
