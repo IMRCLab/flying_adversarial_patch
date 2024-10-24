@@ -25,6 +25,12 @@ from onnx import numpy_helper
 
 import glob
 
+DEBUG_GRAD = False
+
+def printd(*args, **kwargs):
+    if DEBUG_GRAD:
+        print(*args, **kwargs)
+
 def load_model(path, device, config):
     """
     Loads a saved Frontnet model from the given path with the set configuration and moves it to CPU/GPU.
@@ -46,7 +52,7 @@ def load_model(path, device, config):
     
     # load the saved model 
     try:
-        model.load_state_dict(torch.load(path, map_location=device)['model'])
+        model.load_state_dict(torch.load(path, map_location=device, weights_only=True)['model'])
     except RuntimeError:
         print("RuntimeError while trying to load the saved model!")
         print("Seems like the model config does not match the saved model architecture.")
@@ -260,6 +266,8 @@ def plot_saliency(img, gt, model):
 
     return fig
 
+def inverse_norm(val, minimum, maximum):
+    return np.arctanh(2* ((val - minimum) / (maximum - minimum)) - 1)
 
 def get_transformation(sf, tx, ty):
     translation_vector = torch.stack([tx, ty]).unsqueeze(0) #torch.zeros([1], device=tx.device)]).unsqueeze(0)
