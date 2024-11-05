@@ -687,7 +687,7 @@ if __name__=="__main__":
     # print("Anytime losses: ", anytime_losses)
     
     for train_iteration in trange(num_hl_iter):
-        anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, model_name=args.model, quantized=quantized))
+        # anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, model_name=args.model, quantized=quantized))
         torch.cuda.empty_cache()
         pos_losses = []
 
