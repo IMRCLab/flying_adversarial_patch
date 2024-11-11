@@ -350,6 +350,13 @@ class DiffusionModel():
     def sample(self, n_samples: int, targets: torch.tensor, device: torch.device, patch_size: tuple[int, int], n_steps: int=1_000):
         """Alg 2 from the DDPM paper."""
         self.model.eval()
+        # make sure that targets is a tensor
+        if not isinstance(targets, torch.Tensor):
+            targets = torch.tensor(targets)
+        # and of shape (n_samples, 3)
+        if len(targets.shape) == 1 or targets.shape[0] == 1:
+            targets = targets.repeat(n_samples, 1)
+
         with torch.no_grad():
             x_t = torch.randn((n_samples, 1, *patch_size)).to(device)
             targets = targets.to(device)
