@@ -1,0 +1,34 @@
+path: "eval/heatmap/"
+# +x is distance
+# +y is left
+# +z is top
+targets:
+  x : [2.] #, 1.0] #, 1.0] #, 1.0] #, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0]
+  y : [0.0] #, -1.0] #, 1.0] #, 0.0] #, 0.0, -1.0, -1.0, 1.0, 1.0, 0.0]
+  z : [0.0] #, 0.0] #, 0.0] #, -1.0] #, 1.0, -1.0, 1.0, -1.0, 1.0, 0.0]
+stlc: # small-time locally controllability
+  offsets:
+    # base
+    - target: [0,0,0]
+      position: [0,0,0]
+lr_pos: 0.001
+lr_patch: 0.01
+prob_weight: 1.0
+num_hl_iter: 50
+num_pos_restarts: 3
+num_pos_epochs: 1
+num_patch_epochs: 1
+batch_size: 32
+num_patches: 1
+scale_min: 0.2
+scale_max: 0.7
+tx_min: -10.
+tx_max: 100.
+ty_min: -10.
+ty_max: 80.
+patch: 
+  mode: 'random'  # face, white, random, diffusion
+  size: [80, 80] # patch size in [height, width]
+  path: 'src/custom_patches/diffusion_patches_100.npy' # if mode == 'face' set a path, otherwise path is ignored
+mode: "joint" # fixed, joint, split, hybrid
+quantized: false
