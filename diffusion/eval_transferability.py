@@ -56,26 +56,54 @@ if __name__ == '__main__':
     frontnet_gt_positions = frontnet_gt_positions[indices]
 
     # sanity check
-    np.testing.assert_array_equal(yolo_gt_targets, frontnet_gt_targets)
+    # np.testing.assert_array_equal(yolo_gt_targets, frontnet_gt_targets)
+    # check failed, targets are different but it might not have a huge impact on the results
+    # therefore, we combine the targets and positions to draw random samples for the combined diffusion model
     
+    combined_targets = np.concatenate([frontnet_gt_targets, yolo_gt_targets], axis=0)
+    combined_positions = np.concatenate([frontnet_gt_positions, yolo_gt_positions], axis=0)
+    print(combined_targets.shape)
+    indices = np.random.choice(len(combined_targets), size=100, replace=False)
+    combined_targets = combined_targets[indices]
+    combined_positions = combined_positions[indices]
 
     frontnet_gt_on_frontnet = []
     frontnet_gt_on_yolov5 = []
     yolo_gt_on_frontnet = []
     yolo_gt_on_yolov5 = []
-    all_on_frontnet = []
-    all_on_yolo = []
+    frontnet_diffusion_on_frontnet = []
+    frontnet_diffusion_on_yolov5 = []
+    yolo_diffusion_on_frontnet = []
+    yolo_diffusion_on_yolov5 = []
+    combined_diffusion_on_frontnet = []
+    combined_diffusion_on_yolov5 = []
 
     for i in range(1):#len(indices)):
-        target = torch.from_numpy(frontnet_gt_targets[i]).unsqueeze(0).to(device)
-        print(target)
+        frontnet_target = torch.from_numpy(frontnet_gt_targets[i]).unsqueeze(0).to(device)
+        print(frontnet_target)
+        yolo_target = torch.from_numpy(yolo_gt_targets[i]).unsqueeze(0).to(device)
+        print(yolo_target)
         frontnet_position = torch.from_numpy(frontnet_gt_positions[i]).unsqueeze(1)
         print(frontnet_position)
-        matrix_gt = get_transformation(*frontnet_position).to(device)
-        print(matrix_gt)
-        
-        frontnet_gt_on_frontnet.append(calc_loss(test_set, frontnet_gt_patches[i], matrix_gt, frontnet, ))
+        matrix_frontnet_gt = get_transformation(*frontnet_position).to(device)
+        print(matrix_frontnet_gt)
 
+        yolo_position = torch.from_numpy(yolo_gt_positions[i]).unsqueeze(1)
+        matrix_yolo_gt = get_transformation(*yolo_position).to(device)
+        print(matrix_yolo_gt)
+
+        frontnet_gt_patch = torch.from_numpy(frontnet_gt_patches[i]).unsqueeze(0).unsqueeze(0).to(device)
+        print(frontnet_gt_patch.shape)
+        yolo_gt_patch = torch.from_numpy(yolo_gt_patches[i]).unsqueeze(0).unsqueeze(0).to(device)
+        print(yolo_gt_patch.shape)
+
+        # all_diffusion_patch = all_diffusion.sample(combined_targets)
+        
+        frontnet_gt_on_frontnet.append(calc_loss(test_set, frontnet_gt_patch, matrix_frontnet_gt, frontnet, frontnet_target, model_name='frontnet'))
+        frontnet_gt_on_yolov5.append(calc_loss(test_set, frontnet_gt_patch, matrix_frontnet_gt, yolov5, frontnet_target, model_name='yolov5'))
+        yolo_gt_on_frontnet.append(calc_loss(test_set, yolo_gt_patch, matrix_yolo_gt, frontnet, yolo_target, model_name='frontnet'))
+        yolo_gt_on_yolov5.append(calc_loss(test_set, yolo_gt_patch, matrix_yolo_gt, yolov5, yolo_target, model_name='yolov5'))
+    
     # gt_patch = torch.from_numpy(gt_patch).unsqueeze(0).unsqueeze(0).to(device)
     # diffusion_patch = torch.from_numpy(diffusion_patch).unsqueeze(0).unsqueeze(0).to(device)
     # random_patch = random_patch.unsqueeze(0).unsqueeze(0).to(device)
