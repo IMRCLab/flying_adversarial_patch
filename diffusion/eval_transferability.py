@@ -45,12 +45,16 @@ if __name__ == '__main__':
         yolo_gt_patches, yolo_gt_targets, yolo_gt_positions = load_pickle('diffusion/yolopatches.pickle')
         frontnet_gt_patches, frontnet_gt_targets, frontnet_gt_positions = load_pickle('diffusion/FAP_combined.pickle')
 
-        yolo_gt_patches = yolo_gt_patches[indices]
+        yolo_gt_patches = yolo_gt_patches[indices] / 255.
         yolo_gt_targets = yolo_gt_targets[indices]
         yolo_gt_positions = yolo_gt_positions[indices]
-        frontnet_gt_patches = frontnet_gt_patches[indices]
+        frontnet_gt_patches = frontnet_gt_patches[indices] / 255.
         frontnet_gt_targets = frontnet_gt_targets[indices]
         frontnet_gt_positions = frontnet_gt_positions[indices]
+
+        print(frontnet_gt_patches.min(), frontnet_gt_patches.max())
+        print(yolo_gt_patches.min(), yolo_gt_patches.max())
+
 
         # sanity check
         # np.testing.assert_array_equal(yolo_gt_targets, frontnet_gt_targets)
@@ -78,25 +82,18 @@ if __name__ == '__main__':
 
             all_diffusion = DiffusionModel(device)
             all_diffusion.load(f'diffusion/all_diffusion.pth')
-            print("Synthesize diffusion patches...")
-            frontnet_diffusion_patches = frontnet_diffusion.sample(len(combined_targets), combined_targets, device, frontnet_gt_patches.shape[-2::])
-            # print("Frontent diffusion patches: ", frontnet_diffusion_patches.shape)
-            yolo_diffusion_patches = frontnet_diffusion.sample(len(combined_targets), combined_targets, device, frontnet_gt_patches.shape[-2::])
-            # print("Yolo diffusion patches shape: ", yolo_diffusion_patches.shape)
-            combined_diffusion_patches = all_diffusion.sample(len(combined_targets), combined_targets, device, frontnet_gt_patches.shape[-2::])
-            # print("Combined diffusion pacthes shape: ", combined_diffusion_patches.shape)
-            # TODO: test if these patches perform worse than patches that are created for each target separately
-
-        # save patches for further use
-            np.save('eval/transferability/frontnet_diffusion_patches.npy', frontnet_diffusion_patches.cpu().numpy())
-            np.save('eval/transferability/yolo_diffusion_patches.npy', yolo_diffusion_patches.cpu().numpy())
-            np.save('eval/transferability/combined_diffusion_patches.npy', combined_diffusion_patches.cpu().numpy())
+            
         else:
             print("Loading diffusion patches...")
             frontnet_diffusion_patches = torch.from_numpy(np.load('eval/transferability/frontnet_diffusion_patches.npy')).to(device)
             yolo_diffusion_patches = torch.from_numpy(np.load('eval/transferability/yolo_diffusion_patches.npy')).to(device)
             combined_diffusion_patches = torch.from_numpy(np.load('eval/transferability/combined_diffusion_patches.npy')).to(device)
 
+        random_patches = torch.rand(frontnet_gt_patches.shape).unsqueeze(1).to(device)
+        print(random_patches.shape, random_patches.min(), random_patches.max())
+
+        random_on_frontnet = []
+        random_on_yolov5 = []
         frontnet_gt_on_frontnet = []
         frontnet_gt_on_yolov5 = []
         yolo_gt_on_frontnet = []
@@ -107,6 +104,11 @@ if __name__ == '__main__':
         yolo_diffusion_on_yolov5 = []
         combined_diffusion_on_frontnet = []
         combined_diffusion_on_yolov5 = []
+
+        if args.synthesize:
+            frontnet_diffusion_patches = []
+            yolo_diffusion_patches = []
+            combined_diffusion_patches = []
 
         for i in trange(len(indices)):
             frontnet_target = torch.from_numpy(frontnet_gt_targets[i]).unsqueeze(0).to(device)
@@ -135,22 +137,36 @@ if __name__ == '__main__':
             yolo_gt_patch = torch.from_numpy(yolo_gt_patches[i]).unsqueeze(0).unsqueeze(0).to(device)
             # print(yolo_gt_patch.shape)
 
+            random_on_frontnet.append(calc_loss(test_set, random_patches[i].unsqueeze(0), matrix_frontnet_gt, frontnet, frontnet_target, model_name='frontnet'))
+            random_on_yolov5.append(calc_loss(test_set, random_patches[i].unsqueeze(0), matrix_yolo_gt, yolov5, yolo_target, model_name='yolov5'))
+
             frontnet_gt_on_frontnet.append(calc_loss(test_set, frontnet_gt_patch, matrix_frontnet_gt, frontnet, frontnet_target, model_name='frontnet'))
             frontnet_gt_on_yolov5.append(calc_loss(test_set, frontnet_gt_patch, matrix_frontnet_gt, yolov5, frontnet_target, model_name='yolov5'))
             
             yolo_gt_on_frontnet.append(calc_loss(test_set, yolo_gt_patch, matrix_yolo_gt, frontnet, yolo_target, model_name='frontnet'))
             yolo_gt_on_yolov5.append(calc_loss(test_set, yolo_gt_patch, matrix_yolo_gt, yolov5, yolo_target, model_name='yolov5'))
             
-            frontnet_diffusion_on_frontnet.append(calc_loss(test_set, frontnet_diffusion_patches[i].unsqueeze(0), matrix_combined, frontnet, combined_target, model_name='frontnet'))
-            frontnet_diffusion_on_yolov5.append(calc_loss(test_set, frontnet_diffusion_patches[i].unsqueeze(0), matrix_combined, yolov5, combined_target, model_name='yolov5'))
+            if args.synthesize:
+                frontnet_diffusion_patch = frontnet_diffusion.sample(1, combined_target, device, [80, 80])
+                yolo_diffusion_patch = yolov5_diffusion.sample(1, combined_target, device, [80, 80])
+                combined_diffusion_patch = all_diffusion.sample(1, combined_target, device, [80, 80])
 
-            yolo_diffusion_on_frontnet.append(calc_loss(test_set, yolo_diffusion_patches[i].unsqueeze(0), matrix_combined, frontnet, combined_target, model_name='frontnet'))
-            yolo_diffusion_on_yolov5.append(calc_loss(test_set, yolo_diffusion_patches[i].unsqueeze(0), matrix_combined, yolov5, combined_target, model_name='yolov5'))
+                frontnet_diffusion_patches.append(frontnet_diffusion_patch[0].cpu().numpy())
+                yolo_diffusion_patches.append(yolo_diffusion_patch[0].cpu().numpy())
+                combined_diffusion_patches.append(combined_diffusion_patch[0].cpu().numpy())
 
-            combined_diffusion_on_frontnet.append(calc_loss(test_set, combined_diffusion_patches[i].unsqueeze(0), matrix_combined, frontnet, combined_target, model_name='frontnet'))
-            combined_diffusion_on_yolov5.append(calc_loss(test_set, combined_diffusion_patches[i].unsqueeze(0), matrix_combined, yolov5, combined_target, model_name='yolov5'))
+            frontnet_diffusion_on_frontnet.append(calc_loss(test_set, frontnet_diffusion_patch, matrix_combined, frontnet, combined_target, model_name='frontnet'))
+            frontnet_diffusion_on_yolov5.append(calc_loss(test_set, frontnet_diffusion_patch, matrix_combined, yolov5, combined_target, model_name='yolov5'))
 
-        
+            yolo_diffusion_on_frontnet.append(calc_loss(test_set, yolo_diffusion_patch, matrix_combined, frontnet, combined_target, model_name='frontnet'))
+            yolo_diffusion_on_yolov5.append(calc_loss(test_set, yolo_diffusion_patch, matrix_combined, yolov5, combined_target, model_name='yolov5'))
+
+            combined_diffusion_on_frontnet.append(calc_loss(test_set, combined_diffusion_patch, matrix_combined, frontnet, combined_target, model_name='frontnet'))
+            combined_diffusion_on_yolov5.append(calc_loss(test_set, combined_diffusion_patch, matrix_combined, yolov5, combined_target, model_name='yolov5'))
+
+            
+        random_on_frontnet = np.array(random_on_frontnet)
+        random_on_yolov5 = np.array(random_on_yolov5)
         frontnet_gt_on_frontnet = np.array(frontnet_gt_on_frontnet)
         frontnet_gt_on_yolov5 = np.array(frontnet_gt_on_yolov5)
         yolo_gt_on_frontnet = np.array(yolo_gt_on_frontnet)
@@ -162,7 +178,13 @@ if __name__ == '__main__':
         combined_diffusion_on_frontnet = np.array(combined_diffusion_on_frontnet)
         combined_diffusion_on_yolov5 = np.array(combined_diffusion_on_yolov5)
 
+        frontnet_diffusion_patches = np.array(frontnet_diffusion_patches)
+        yolo_diffusion_patches = np.array(yolo_diffusion_patches)
+        combined_diffusion_patches = np.array(combined_diffusion_patches)
+
         # save results
+        np.save('eval/transferability/random_on_frontnet.npy', random_on_frontnet)
+        np.save('eval/transferability/random_on_yolov5.npy', random_on_yolov5)
         np.save('eval/transferability/frontnet_gt_on_frontnet.npy', frontnet_gt_on_frontnet)
         np.save('eval/transferability/frontnet_gt_on_yolov5.npy', frontnet_gt_on_yolov5)
         np.save('eval/transferability/yolo_gt_on_frontnet.npy', yolo_gt_on_frontnet)
@@ -174,8 +196,15 @@ if __name__ == '__main__':
         np.save('eval/transferability/combined_diffusion_on_frontnet.npy', combined_diffusion_on_frontnet)
         np.save('eval/transferability/combined_diffusion_on_yolov5.npy', combined_diffusion_on_yolov5)
 
+        if args.synthesize:
+            np.save('eval/transferability/frontnet_diffusion_patches.npy', frontnet_diffusion_patches)
+            np.save('eval/transferability/yolo_diffusion_patches.npy', yolo_diffusion_patches)
+            np.save('eval/transferability/combined_diffusion_patches.npy', combined_diffusion_patches)
+
     else:
         print("Loading saved data...")
+        random_on_frontnet = np.load('eval/transferability/random_on_frontnet.npy')
+        random_on_yolov5 = np.load('eval/transferability/random_on_yolov5.npy')
         frontnet_gt_on_frontnet = np.load('eval/transferability/frontnet_gt_on_frontnet.npy')
         frontnet_gt_on_yolov5 = np.load('eval/transferability/frontnet_gt_on_yolov5.npy')
         yolo_gt_on_frontnet = np.load('eval/transferability/yolo_gt_on_frontnet.npy')
@@ -188,7 +217,8 @@ if __name__ == '__main__':
         combined_diffusion_on_yolov5 = np.load('eval/transferability/combined_diffusion_on_yolov5.npy')
 
 
-
+    print(f"Random patches on Frontnet: {np.mean(random_on_frontnet)}, std: {np.std(random_on_frontnet)}")
+    print(f"Random patches on Yolov5: {np.mean(random_on_yolov5)}, std: {np.std(random_on_yolov5)}")
     print(f"Ground truth Frontnet patches on Frontnet: {np.mean(frontnet_gt_on_frontnet)}, std: {np.std(frontnet_gt_on_frontnet)}")
     print(f"Ground truth Frontnet patches on Yolov5: {np.mean(frontnet_gt_on_yolov5)}, std: {np.std(frontnet_gt_on_yolov5)}")
     print(f"Ground truth Yolov5 patches on Frontnet: {np.mean(yolo_gt_on_frontnet)}, std: {np.std(yolo_gt_on_frontnet)}")
@@ -199,3 +229,65 @@ if __name__ == '__main__':
     print(f"Yolov5 diffusion patches on Yolov5: {np.mean(yolo_diffusion_on_yolov5)}, std: {np.std(yolo_diffusion_on_yolov5)}")
     print(f"Combined diffusion patches on Frontnet: {np.mean(combined_diffusion_on_frontnet)}, std: {np.std(combined_diffusion_on_frontnet)}")
     print(f"Combined diffusion patches on Yolov5: {np.mean(combined_diffusion_on_yolov5)}, std: {np.std(combined_diffusion_on_yolov5)}")
+
+
+    import matplotlib.pyplot as plt
+
+    # change settings to match latex
+    plt.rcParams.update({
+                "text.usetex": True,
+                "font.family": "sans-serif",
+                "font.sans-serif": "Helvetica",
+                "font.size": 12,
+                "figure.figsize": (5, 3),
+                "mathtext.fontset": 'stix'
+    })
+
+    # Data for boxplots
+    data_frontnet = [
+        np.mean(random_on_frontnet.T, axis=1),
+        np.mean(frontnet_gt_on_frontnet.T, axis=1),
+        np.mean(yolo_gt_on_frontnet.T, axis=1),
+        np.mean(frontnet_diffusion_on_frontnet.T, axis=1),
+        np.mean(yolo_diffusion_on_frontnet.T, axis=1),
+        np.mean(combined_diffusion_on_frontnet.T, axis=1)
+    ]
+
+    data_yolov5 = [
+        np.mean(random_on_yolov5.T, axis=1),
+        np.mean(frontnet_gt_on_yolov5.T, axis=1),
+        np.mean(yolo_gt_on_yolov5.T, axis=1),
+        np.mean(frontnet_diffusion_on_yolov5.T, axis=1),
+        np.mean(yolo_diffusion_on_yolov5.T, axis=1),
+        np.mean(combined_diffusion_on_yolov5.T, axis=1)
+    ]
+
+    labels = [
+        'Random',
+        'Frontnet GT',
+        'Yolo GT',
+        'Frontnet Diffusion',
+        'Yolo Diffusion',
+        'Combined Diffusion'
+    ]
+
+    # Create one figure with 2 subplots
+    fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+    # Create boxplot for Frontnet
+    axs[0].boxplot(data_frontnet, tick_labels=labels)
+    axs[0].set_title('Performance on Frontnet')
+    axs[0].set_ylabel('Loss [m]')
+    # axs[0].set_yscale('log')
+    axs[0].tick_params(axis='x', rotation=45)
+
+    # Create boxplot for Yolov5
+    axs[1].boxplot(data_yolov5, tick_labels=labels)
+    axs[1].set_title('Performance on Yolov5')
+    axs[1].set_ylabel('Loss [m]')
+    # axs[1].set_yscale('log')
+    axs[1].tick_params(axis='x', rotation=45)
+
+    plt.tight_layout()
+    plt.savefig('eval/transferability/boxplot_transferability.png')
+    plt.show()
