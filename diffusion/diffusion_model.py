@@ -256,7 +256,11 @@ class UNet(nn.Module):
 
         self.conv_out = nn.Conv2d(feats, out_size, kernel_size=1)
 
-    def forward(self, x: Tensor, target: Tensor = None, t: Tensor = None) -> Tensor:
+        # small network to denoise the position
+        # in size: 7 -> noisy position + target as condition + timestep
+        self.position_net = nn.Sequential(nn.Linear(7, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 3))
+
+    def forward(self, x: Tensor, position: Tensor, target: Tensor = None, t: Tensor = None) -> Tensor:
         # print(x.shape, target.shape, t.shape)
         if t is not None:
             # Create time embedding using positional encoding.
@@ -282,8 +286,10 @@ class UNet(nn.Module):
             x_i[-1] = layer(x=x_i[-1], x_skip=x_i[-2 - i], t_emb=t_emb)
 
         out = self.conv_out(x_i[-1])
+        position = self.position_net(torch.concat([position, target, t], axis=-1))
 
-        return out
+       
+        return out, position
 
 class DiffusionModel():
     def __init__(self, device, in_size=1, out_size=1, lr=1e-4):
@@ -320,19 +326,29 @@ class DiffusionModel():
 
         losses = []
         for epoch in trange(nepochs):
-            for [patches, targets] in data_loader:
+            for [patches, targets, positions] in data_loader:
                 patches = patches.to(device)
                 targets = targets.to(device)
+                positions = positions.to(device)
+                # print(patches.shape, targets.shape, positions.shape)
                 optimizer.zero_grad()
                 # Fwd pass
                 t = torch.randint(denoising_steps, size=(patches.shape[0],))  # sample timesteps - 1 per datapoint
-                alpha_t = torch.index_select(torch.Tensor(alpha_bars), 0, t).unsqueeze(1).unsqueeze(1).unsqueeze(1).to(device)    # Get the alphas for each timestep
+                alpha_t_patch = torch.index_select(torch.Tensor(alpha_bars), 0, t).unsqueeze(1).unsqueeze(1).unsqueeze(1).to(device)    # Get the alphas for each timestep
+                alpha_t_position = torch.index_select(torch.Tensor(alpha_bars), 0, t).unsqueeze(1).to(device)
 
-                noise = torch.randn(*patches.shape, device=device)   # Sample DIFFERENT random noise for each datapoint
+                noise_patch = torch.randn(*patches.shape, device=device)   # Sample DIFFERENT random noise for each datapoint
+                noise_position = torch.rand(*positions.shape, device=device)
+
+                model_in = alpha_t_patch**.5 * patches + noise_patch*(1-alpha_t_patch)**.5   # Noise corrupt the data (eq14)
+                noisy_position = alpha_t_position**.5 * positions + noise_position*(1-alpha_t_position)**.5
+
+                # print(model_in.shape, noisy_position.shape, targets.shape, t.shape)
+
+                pred_noise_patch, pred_noise_position = self.model(model_in, noisy_position, targets, t.unsqueeze(1).to(device))
                 
-                model_in = alpha_t**.5 * patches + noise*(1-alpha_t)**.5   # Noise corrupt the data (eq14)
-                out = self.model(model_in, targets, t)
-                loss = torch.mean((noise - out)**2)     # Compute loss on prediction (eq14)
+                loss = torch.mean((noise_patch - pred_noise_patch)**2) + torch.mean((noise_position - pred_noise_position)**2)    # Compute loss on prediction (eq14)
+                
                 losses.append(loss.detach().cpu().numpy())
                 all_losses.append(loss.detach().cpu().numpy())
 
@@ -358,20 +374,27 @@ class DiffusionModel():
             targets = targets.repeat(n_samples, 1)
 
         with torch.no_grad():
-            x_t = torch.randn((n_samples, 1, *patch_size)).to(device)
+            patch = torch.randn((n_samples, 1, *patch_size)).to(device)
+            position = torch.randn((n_samples, 3)).to(device)
             targets = targets.to(device)
             alpha_bars, betas = self.get_alpha_betas(n_steps)
             alphas = 1 - betas
             for t in range(len(alphas))[::-1]:
                 ts = t * torch.ones((n_samples, 1), dtype=torch.int32).to(device)
                 ab_t = alpha_bars[t] * torch.ones((n_samples, 1), dtype=torch.int32).to(device)  # Tile the alpha to the number of samples
-                z = (torch.randn((n_samples, 1, *patch_size)) if t > 1 else torch.zeros((n_samples, 1, *patch_size))).to(device)
-                model_prediction = self.model(x_t, targets, ts.squeeze(1))
-                x_t = 1 / alphas[t]**.5 * (x_t - (betas[t]/(1-ab_t)**.5).unsqueeze(2).unsqueeze(2) * model_prediction)
-                x_t += betas[t]**0.5 * z
+                z_patch = (torch.randn((n_samples, 1, *patch_size)) if t > 1 else torch.zeros((n_samples, 1, *patch_size))).to(device)
+                z_position = (torch.randn((n_samples, 3)) if t > 1 else torch.zeros((n_samples, 3))).to(device)
+                
+                pred_noise, pred_pos = self.model(patch, position, targets, ts)
+                
+                patch = 1 / alphas[t]**.5 * (patch - (betas[t]/(1-ab_t)**.5).unsqueeze(2).unsqueeze(2) * pred_noise)
+                patch += betas[t]**0.5 * z_patch
 
-            x_t = torch.stack([(x - torch.min(x)) / (torch.max(x) - torch.min(x)) for x in x_t]) # normalize
-            return x_t
+                position = 1 / alphas[t]**.5 * (position - (betas[t]/(1-ab_t)**.5) * pred_pos)
+                position += betas[t]**0.5 * z_position
+
+            patch = torch.stack([(x - torch.min(x)) / (torch.max(x) - torch.min(x)) for x in patch]) # normalize
+            return patch, position
 
 
     def load(self, path):
@@ -402,24 +425,29 @@ if __name__ == '__main__':
 
     patches = []
     targets = []
+    positions = []
     for i in range(len(data)):
         patches.append(data[i][0])
         targets.append(data[i][1])
+        positions.append(data[i][2])
     
-    patches = np.array(patches)
+    patches = np.array(patches) / 255.
     targets = np.array(targets)
+    positions = np.array(positions)
 
     patch_size = patches.shape[-2:]
 
     # patches = np.array([patch - np.min(patch)) / (np.max(patch) - np.min(patch) for patch in patches]) # normalize
     patches = torch.tensor(patches).unsqueeze(1)
     targets = torch.tensor(targets)
+    positions = torch.tensor(positions)
+    print(patches.shape, targets.shape, positions.shape)
 
     # print(patches.shape)
 
     # Define dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    dataset = torch.utils.data.TensorDataset(patches, targets)
+    dataset = torch.utils.data.TensorDataset(patches, targets, positions)
     loader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True, drop_last=True)
 
     # model = UNet(in_size=1, out_size=1, device=device)
@@ -431,40 +459,44 @@ if __name__ == '__main__':
     print("Start training..")
     all_losses = model.train(loader, device, nepochs=args.epochs, denoising_steps=1_000)
     
-    os.makedirs('results/diffusion_training', exist_ok=True)
-    model.save(f'results/diffusion_training/{args.output}')
+    os.makedirs(args.output, exist_ok=True)
+    model.save(args.output)
     
-    n_samples = 5
+    n_samples = 1
     x = np.random.uniform(0,2,n_samples)
-    y = np.random.uniform(-1,1,n_samples,)
-    z = np.random.uniform(-0.5,0.5,n_samples,)
+    y = np.random.uniform(-1,1,n_samples)
+    z = np.random.uniform(-0.5,0.5,n_samples)
 
     r_targets = torch.tensor(np.stack((x, y, z)).T, dtype=torch.float32)
 
-    samples = model.sample(n_samples, r_targets, device, patch_size=patch_size, n_steps=1_000).detach().to('cpu').numpy()
-    print(samples.min(), samples.max())
+    sample_patches, sample_positions = model.sample(n_samples, r_targets, device, patch_size=patch_size, n_steps=1_000)
+    sample_patches = sample_patches.detach().cpu().numpy()
+    sample_positions = sample_positions.detach().cpu().numpy()
+    
+    print(sample_patches.shape, sample_patches.min(), sample_patches.max())
+    print(sample_positions)
 
     
 
-    # # running into memory issues with this sample function! fix: don't compute gradients
-    # with torch.no_grad():
-    #     samples = sample(model, targets, device, n_samples=n_samples, patch_size=patch_size, n_steps=1_000).detach().cpu().numpy()
-    # print(samples.shape)
-    # print(np.min(samples), np.max(samples))
+    # # # running into memory issues with this sample function! fix: don't compute gradients
+    # # with torch.no_grad():
+    # #     samples = sample(model, targets, device, n_samples=n_samples, patch_size=patch_size, n_steps=1_000).detach().cpu().numpy()
+    # # print(samples.shape)
+    # # print(np.min(samples), np.max(samples))
 
-    # # fig = plt.figure(constrained_layout=True)
-    # # subfigs = fig.subfigures(2, 1)
-    # # axs_gt = subfigs[0].subplots(1, 2)
-    # # for i, gt_patch in enumerate(gt_patches):
-    # #     axs_gt[i].imshow(gt_patch, cmap='gray')
-    # #     axs_gt[i].set_title(f'ground truth {i}')
+    # # # fig = plt.figure(constrained_layout=True)
+    # # # subfigs = fig.subfigures(2, 1)
+    # # # axs_gt = subfigs[0].subplots(1, 2)
+    # # # for i, gt_patch in enumerate(gt_patches):
+    # # #     axs_gt[i].imshow(gt_patch, cmap='gray')
+    # # #     axs_gt[i].set_title(f'ground truth {i}')
 
     
 
-    fig = plt.figure(constrained_layout=True)
-    axs_samples = fig.subplots(1, n_samples)
-    for i, sample in enumerate(samples):
-        axs_samples[i].imshow(sample[0], cmap='gray')
-        axs_samples[i].set_title(f'sample {i}')
-    fig.savefig(f'results/diffusion_training/samples1.png', dpi=200)
-    plt.show()
+    # fig = plt.figure(constrained_layout=True)
+    # axs_samples = fig.subplots(1, n_samples)
+    # for i, sample in enumerate(samples):
+    #     axs_samples[i].imshow(sample[0], cmap='gray')
+    #     axs_samples[i].set_title(f'sample {i}')
+    # fig.savefig(f'results/diffusion_training/samples1.png', dpi=200)
+    # plt.show()
