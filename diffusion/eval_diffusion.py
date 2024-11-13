@@ -14,6 +14,7 @@ from util import load_dataset
 from create_dataset import load_targets, get_coeffs
 from patch_placement import place_patch
 from attacks import norm_transformation, get_transformation
+import pickle
 
 def calc_loss(dataset, patch, transformation_matrix, model, target, model_name='frontnet', quantized=False):
     with torch.no_grad():

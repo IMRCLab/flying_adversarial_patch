@@ -85,7 +85,7 @@ def train(idx_start=0, idx_end=100, model='frontnet'):
         with open('dataset.yaml') as f:
             settings = yaml.load(f, Loader=yaml.FullLoader)
         patch_size = settings['patch']['size']
-        path = Path(f'{settings['path']}/{patch_size[0]}x{patch_size[1]}/{i}/')
+        path = Path(f"{settings['path']}/{patch_size[0]}x{patch_size[1]}/{i}/")
         # print(path)
 
         targets = [values for _, values in settings['targets'].items()]
@@ -108,7 +108,7 @@ def train(idx_start=0, idx_end=100, model='frontnet'):
         with open(path / 'settings.yaml', 'w') as f:
             yaml.dump(settings, f)
 
-        command = shlex.split(f"sbatch dataset.sh {str(path / "settings.yaml")} {model}")
+        command = shlex.split(f"sbatch dataset.sh {str(path / 'settings.yaml')} {model}")
         subprocess.run(command)
         del settings
 
