@@ -223,13 +223,17 @@ class UNet(nn.Module):
         features_start: int = 64,
         t_emb_size: int = 512,
         max_time_steps: int = 1000,
-        target_emb : bool = True
+        target_emb : bool = True,
+        pos_emb: bool = True,
     ) -> None:
         super().__init__()
 
         self.t_embedding = nn.Sequential(
             PositionalEncoding(max_time_steps, t_emb_size, device), nn.Linear(t_emb_size, t_emb_size)
         )
+        
+        if pos_emb:
+            self.position_embedding = TargetEncoding([80, 80])
 
         if target_emb:
             self.target_embedding = TargetEncoding([80, 80])
@@ -238,7 +242,9 @@ class UNet(nn.Module):
             raise ValueError(f"num_layers = {num_layers}, expected: num_layers > 0")
         self.num_layers = num_layers
 
-        if target_emb:
+        if target_emb and pos_emb:
+            self.conv_in = nn.Sequential(ConvBlock(in_size + 2, features_start), ConvBlock(features_start, features_start))
+        elif target_emb or pos_emb:
             self.conv_in = nn.Sequential(ConvBlock(in_size + 1, features_start), ConvBlock(features_start, features_start))
         else:
             self.conv_in = nn.Sequential(ConvBlock(in_size, features_start), ConvBlock(features_start, features_start))
@@ -254,7 +260,9 @@ class UNet(nn.Module):
             feats //= 2
         self.layers = nn.ModuleList(layers)
 
-        self.conv_out = nn.Conv2d(feats, out_size, kernel_size=1)
+        self.conv_out = nn.Conv2d(feats, 2, kernel_size=1)
+
+        self.pos_out = nn.Sequential(nn.Conv2d(1, 1, kernel_size=10, stride=5, padding=1), nn.BatchNorm2d(1), nn.ReLU(), nn.Flatten(), nn.Linear(225, 3))
         #self.position_layer = nn.Linear(, 3)
 
         # small network to denoise the position
@@ -262,7 +270,7 @@ class UNet(nn.Module):
         #self.position_net = nn.Sequential(nn.Linear(7, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 3))
         #self.position_net = nn.Sequential(nn.Linear(7, 32), nn.LeakyReLU(), nn.Linear(32, 64), nn.LeakyReLU(), nn.Linear(64, 32), nn.LeakyReLU(), nn.Linear(32, 3))
 
-    def forward(self, x: Tensor, target: Tensor = None, t: Tensor = None) -> Tensor:
+    def forward(self, x: Tensor, position: Tensor, target: Tensor = None, t: Tensor = None) -> Tensor:
         # print(x.shape, target.shape, t.shape)
         if t is not None:
             # Create time embedding using positional encoding.
@@ -270,6 +278,9 @@ class UNet(nn.Module):
             # print(t.shape)
             t_emb = self.t_embedding(t.flatten()) # shape is (b, 512)
         # print("t_emb shape: ", t_emb.shape)
+        if position is not None:
+            position_emb = self.position_embedding(position)
+            x = torch.cat([x, position_emb], dim=1)
         if target is not None:
             target_emb = self.target_embedding(target)
             x = torch.concat((x, target_emb), dim=1)
@@ -287,12 +298,14 @@ class UNet(nn.Module):
         for i, layer in enumerate(self.layers[self.num_layers - 1 :]):
             x_i[-1] = layer(x=x_i[-1], x_skip=x_i[-2 - i], t_emb=t_emb)
 
-        #print(x_i[-1].shape)
-        noise_patch = self.conv_out(x_i[-1])
-        #position = self.position_net(torch.concat([position, target, t], axis=-1))
-
+        # print(x_i[-1].shape)
+        out = self.conv_out(x_i[-1])
+        noise_patch, noise_position = out.split(1, dim=1)
+        noise_position = self.pos_out(noise_position)
+        #noise_position = self.position_net(torch.concat([position, target, t], axis=-1))
+        #noise_position = self.conv_
        
-        return noise_patch#, position
+        return noise_patch, noise_position
 
 class DiffusionModel():
     def __init__(self, device, in_size=1, out_size=1, lr=1e-3):
@@ -346,8 +359,9 @@ class DiffusionModel():
     def train(self, data_loader: torch.utils.data.DataLoader, device: torch.device, nepochs: int = 10, denoising_steps: int = 1_000):
         """Alg 1 from the DDPM paper"""
         self.model.train()
-        optimizer_patch = torch.optim.Adam(self.model.parameters(), lr=self.lr)
-        optimizer_position = torch.optim.Adam(self.position_net.parameters(), lr=self.lr)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        #optimizer_patch = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        #optimizer_position = torch.optim.Adam(self.position_net.parameters(), lr=self.lr)
         alpha_bars, _ = self.get_alpha_betas(denoising_steps)      # Precompute alphas
 
         all_losses = []
@@ -360,9 +374,10 @@ class DiffusionModel():
                     patches = patches.to(device)
                     targets = targets.to(device)
                     positions = positions.to(device)
-                    # print(patches.shape, targets.shape, positions.shape)
-                    optimizer_patch.zero_grad()
-                    optimizer_position.zero_grad()
+                    #print("Dataloader shapes: ", patches.shape, targets.shape, positions.shape)
+                    optimizer.zero_grad()
+                    # optimizer_patch.zero_grad()
+                    # optimizer_position.zero_grad()
                     # Fwd pass
                     t = torch.randint(denoising_steps, size=(patches.shape[0],))  # sample timesteps - 1 per datapoint
                     alpha_t_patch = torch.index_select(torch.Tensor(alpha_bars), 0, t).unsqueeze(1).unsqueeze(1).unsqueeze(1).to(device)    # Get the alphas for each timestep
@@ -376,9 +391,12 @@ class DiffusionModel():
 
                     # print(model_in.shape, noisy_position.shape, targets.shape, t.shape)
 
-                    #pred_noise_patch, pred_noise_position = self.model(model_in, noisy_position, targets, t.unsqueeze(1).to(device))
-                    pred_noise_patch = self.model(model_in, targets, t.unsqueeze(1).to(device))
-                    pred_noise_position = self.position_net(torch.cat([noisy_position, targets, t.unsqueeze(1).to(device)], axis=-1))
+                    #pred_noise_patch, pred_noise_position = self.model(model_in, targets, t.unsqueeze(1).to(device))
+                    pred_noise_patch, pred_noise_position = self.model(model_in, noisy_position, targets, t.unsqueeze(1).to(device))
+                    print(pred_noise_patch.shape, pred_noise_patch.min(), pred_noise_patch.max())
+                    print(pred_noise_position.shape, pred_noise_position.min(), pred_noise_position.max())
+                    # pred_noise_patch = self.model(model_in, targets, t.unsqueeze(1).to(device))
+                    # pred_noise_position = self.position_net(torch.cat([noisy_position, targets, t.unsqueeze(1).to(device)], axis=-1))
 
                     loss_patch = torch.mean((noise_patch - pred_noise_patch)**2) # Compute loss on prediction (eq14)
                     loss_position = torch.mean((noise_position - pred_noise_position)**2)
@@ -389,10 +407,12 @@ class DiffusionModel():
                     all_losses.append(loss.detach().cpu().numpy())
 
                     # Bwd pass
-                    loss_patch.backward()
-                    optimizer_patch.step()
-                    loss_position.backward()
-                    optimizer_position.step()
+                    loss.backward()
+                    optimizer.step()
+                    # loss_patch.backward()
+                    # optimizer_patch.step()
+                    # loss_position.backward()
+                    # optimizer_position.step()
 
                 if (epoch+1) % 10 == 0:
                     mean_loss = np.mean(np.array(losses))
@@ -451,9 +471,10 @@ class DiffusionModel():
                 z_patch = (torch.randn((n_samples, 1, *patch_size)) if t > 1 else torch.zeros((n_samples, 1, *patch_size))).to(device)
                 z_position = (torch.randn((n_samples, 3)) if t > 1 else torch.zeros((n_samples, 3))).to(device)
                 
-                #pred_noise, pred_pos = self.model(patch, position, targets, ts)
-                pred_noise = self.model(patch, targets, ts)
-                pred_pos = self.position_net(torch.cat([position, targets, ts], axis=-1))
+                #pred_noise, pred_pos = self.model(patch, targets, ts)
+                pred_noise, pred_pos = self.model(patch, position, targets, ts)
+                #pred_noise = self.model(patch, targets, ts)
+                #pred_pos = self.position_net(torch.cat([position, targets, ts], axis=-1))
                 
                 patch = 1 / alphas[t]**.5 * (patch - (betas[t]/(1-ab_t)**.5).unsqueeze(2).unsqueeze(2) * pred_noise)
                 patch += betas[t]**0.5 * z_patch
@@ -467,7 +488,8 @@ class DiffusionModel():
             # postprocessing
             #print(patch.min(), patch.max())
             #print(position)
-            patch = torch.stack([(x - torch.min(x)) / (torch.max(x) - torch.min(x)) for x in patch]) # normalize
+            #patch = torch.stack([(x - torch.min(x)) / (torch.max(x) - torch.min(x)) for x in patch]) # normalize
+            patch = torch.stack([(x + 1) / 2 for x in patch]) # normalize from [-1,1] to [0,1]
             #position = self._reverse_normalization(position)
             print("Position range: ", position.min(), position.max())
             return patch, position.clip_(-0.999999, 0.999999)
