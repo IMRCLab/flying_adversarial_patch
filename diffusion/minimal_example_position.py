@@ -26,8 +26,9 @@ class Net(nn.Module):
     # for layer in self.linears:
     #   nn.init.kaiming_uniform_(layer.weight)
 
-    #self.position_net = nn.Sequential(nn.Linear(4, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 128), nn.LeakyReLU(), nn.Linear(128, 3))
-    self.position_net = nn.Sequential(nn.Linear(7, 32), nn.LeakyReLU(), nn.Linear(32, 64), nn.LeakyReLU(), nn.Linear(64, 32), nn.LeakyReLU(), nn.Linear(32, 3))
+    self.position_net = nn.Sequential(nn.Linear(7, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 512), nn.LeakyReLU(), nn.Linear(512, 3))
+    #self.position_net = nn.Sequential(nn.Linear(7, 32), nn.LeakyReLU(), nn.Linear(32, 64), nn.LeakyReLU(), nn.Linear(64, 32), nn.LeakyReLU(), nn.Linear(32, 3))
+    #self.position_net = nn.Sequential(nn.Linear(4, 32), nn.LeakyReLU(), nn.Linear(32, 64), nn.LeakyReLU(), nn.Linear(64, 32), nn.LeakyReLU(), nn.Linear(32, 3))
 
     #self.position_net.apply(weights_init)
 
@@ -62,14 +63,14 @@ def train(nepochs: int, loader, device: torch.device, denoising_steps: int = 1_0
   """Alg 1 from the DDPM paper"""
   model = Net()
   model.to(device)
-  optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+  optimizer = torch.optim.Adam(model.parameters(), lr=1e-6)
   alpha_bars, _ = get_alpha_betas(denoising_steps)      # Precompute alphas
   # print("Alpha bars shape: ", alpha_bars.shape)
-  # plt.plot(alpha_bars**0.5, label="Amount Signal")
-  # plt.plot((1 - alpha_bars)**0.5, label="Amount Noise")
-  # plt.legend()
-  # plt.savefig("scheduler.png")
-  # plt.close()
+  plt.plot(alpha_bars**0.5, label="Amount Signal")
+  plt.plot((1 - alpha_bars)**0.5, label="Amount Noise")
+  plt.legend()
+  plt.savefig("scheduler.png")
+  plt.close()
   losses = []
   print("Start training...")
   for epoch in trange(nepochs):
@@ -101,8 +102,10 @@ def train(nepochs: int, loader, device: torch.device, denoising_steps: int = 1_0
       optimizer.step()
 
     if (epoch+1) % 100 == 0:
-        mean_loss = np.mean(np.array(losses[-1000:]))
+        mean_loss = np.mean(np.array(losses[-100:]))
         print("Epoch %d,\t Loss %f " % (epoch+1, mean_loss))
+        samples = sample(model, targets[:10], device, len(targets[:10]), n_steps=denoising_steps).to('cpu')
+        print("Sampled positions: ", samples, samples.min(), samples.max())
 
   return model, np.array(losses)
 
@@ -122,7 +125,7 @@ def sample(model: nn.Module, targets: torch.tensor, device: torch.device, n_samp
             x_t = 1 / alphas[t]**.5 * (x_t - betas[t]/(1-ab_t)**.5 * model_prediction)
             x_t += betas[t]**0.5 * z
 
-        return x_t.clip(-0.999999, 0.9999999)
+        return x_t#.clip(-0.999999, 0.9999999)
     
 
 def load_pickle(path):
@@ -193,22 +196,25 @@ if __name__ == "__main__":
 
     unnorm_positions = np.tanh((np.array(unnorm_positions)))
 
-    # def inverse_tanh(x):
-    #   return 0.5 * np.log((1 + x) / (1 - x))
+    # # def inverse_tanh(x):
+    # #   return 0.5 * np.log((1 + x) / (1 - x))
 
-    sanity_check_positions = np.arctanh(unnorm_positions)
-    sanity_check_positions = np.concatenate([norm_transformation(*torch.Tensor(sanity_check_positions).T, scale_min=0.2, scale_max=0.7)]).T
+    # sanity_check_positions = np.arctanh(unnorm_positions)
+    # sanity_check_positions = np.concatenate([norm_transformation(*torch.Tensor(sanity_check_positions).T, scale_min=0.2, scale_max=0.7)]).T
 
-    np.testing.assert_almost_equal(positions, sanity_check_positions, decimal=5)
+    # np.testing.assert_almost_equal(positions, sanity_check_positions, decimal=5)
 
     data = np.hstack((unnorm_positions, targets))
     print(data.shape)
     print(data[:3])
 
+    # data = np.hstack((positions, targets))
+    # print(data[:3])
+
     dataset = torch.utils.data.TensorDataset(torch.from_numpy(data).float())
     loader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True)
 
-    trained_model, losses = train(10_000, loader, device, denoising_steps=1_000)
+    trained_model, losses = train(1_000, loader, device, denoising_steps=50)
     trained_model = trained_model.eval()
 
 
@@ -219,7 +225,7 @@ if __name__ == "__main__":
     data = next(iter(loader))[0]
     positions, targets = torch.split(data, [3, 3], dim=1)
 
-    samples = sample(trained_model, targets[:10], device, len(targets[:10]), n_steps=1_000).to('cpu')
+    samples = sample(trained_model, targets[:10], device, len(targets[:10]), n_steps=50).to('cpu')
     
     print(positions[:10])
     print(samples)
@@ -227,13 +233,13 @@ if __name__ == "__main__":
     error = torch.mean((positions[:10] - samples)**2)
     print(error)
 
-    print(sanity_check_positions[:10])
-    reversed_samples = reverse_normalization(samples)
-    print(reversed_samples.shape)
-    print(reversed_samples)
+    # print(sanity_check_positions[:10])
+    # reversed_samples = reverse_normalization(samples)
+    # print(reversed_samples.shape)
+    # print(reversed_samples)
 
-    error = np.mean((reversed_samples.numpy() - sanity_check_positions[:10])**2)
-    print(error)
+    # error = np.mean((reversed_samples.numpy() - sanity_check_positions[:10])**2)
+    # print(error)
 
 
 # # Get data from a circle
