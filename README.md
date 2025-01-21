@@ -160,7 +160,7 @@ $ python misc/opencv_manual_extrinsic.py misc/calibration.yaml
 For flying, the UAVs need to be aware of their current state estimates. This information is either provided through a motion capture system or the [Crazyflie FlowDeck v2](https://store.bitcraze.io/collections/decks/products/flow-deck-v2). State estimates provided by the FlowDeck are most likely more inaccurate than the pose information provided by a motion capture system.
 
 ### [Crazyswarm 2](https://imrclab.github.io/crazyswarm2/index.html)
-For improved control of the UAVs, we'll utilize Crazyswarm 2. We tested the demo with the [code of this commit](https://github.com/IMRCLab/crazyswarm2/tree/2e752ccb0a454382c988c2b9e36faf36cbd85bb2).
+For improved control of the UAVs, we'll utilize Crazyswarm 2. We tested the demo with the [code of this commit](https://github.com/IMRCLab/crazyswarm2/tree/b896e6d216efa80228f7711e3a0ac7fcd0894d25).
 #### Install dependencies:
 ```bash
 $ sudo apt install libboost-program-options-dev libusb-1.0-0-dev

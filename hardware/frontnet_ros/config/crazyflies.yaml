@@ -3,7 +3,7 @@ robots:
   cf18:
     enabled: true
     uri: radio://0/80/2M/E7E7E7E712    ## CHANGED!
-    initial_position: [0.0, -1.5, 0.0] #z=0.15
+    initial_position: [0.0, 0.0, 0.0] #z=0.15
     type: cf21  # see robot_types
     firmware_params:
       pid_attitude:
@@ -35,7 +35,7 @@ robots:
       #     frequency: 10
       #     vars: ["frontnet.targetx", "frontnet.targety", "frontnet.targetz", "frontnet.targetyaw"]
   cf4:
-    enabled: true
+    enabled: false
     uri: radio://0/80/2M/E7E7E7E704
     initial_position: [0.5, -1.0, 0.0]
     type: cf21_betafpv  # see robot_types

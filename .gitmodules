@@ -3,7 +3,7 @@
 	url = git@github.com:idsia-robotics/pulp-frontnet.git
 [submodule "hardware/crazyflie-firmware"]
 	path = hardware/crazyflie-firmware
-	url = git@github.com:IMRCLab/crazyflie-firmware.git
+	url = git@github.com:bitcraze/crazyflie-firmware.git
 [submodule "nemo"]
 	path = nemo
 	url = git@github.com:phanfeld/nemo.git
