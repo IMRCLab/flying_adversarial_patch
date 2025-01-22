@@ -141,3 +141,5 @@ parallel_compute/
 *.pth
 test/
 src/custom_patches/diffusion_patches_100.npy
+*.jpg
+*.jpeg
