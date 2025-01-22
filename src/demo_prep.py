@@ -13,6 +13,7 @@ import torch
 import cv2
 
 from util import opencv2quat
+from patch_placement import _perspective_grid
 
 def gen_transformation_matrix(sf, tx, ty):
     matrix = np.zeros((3,3))
@@ -37,13 +38,23 @@ def gen_transformation_matrix(sf, tx, ty):
 #     return q
 
 def get_bb_patch(transformation):
-    transformation_t = torch.tensor(transformation).unsqueeze(0)
-    inv_transform = torch.inverse(transformation_t)[:, :2]
-    affine_grid = torch.nn.functional.affine_grid(inv_transform, size=(1, 1, 96, 160), align_corners=True)
+    transformation_t = torch.tensor(transformation, dtype=torch.double).unsqueeze(0)
+    print(transformation_t, transformation_t.shape)
+    inv_t_matrix = torch.inverse(transformation_t)
+    # print("inverted matrix shape: ", inv_t_matrix.shape)
+    batch_coeffs = inv_t_matrix.reshape(inv_t_matrix.shape[0], -1) # flatten matrices
+    # print("coeffs shape: ", batch_coeffs.shape)
+    device = torch.device('cpu')
+    batch_grid = _perspective_grid(batch_coeffs, w=80, h=80, ow=160, oh=96, dtype=torch.double, device=device, center = [1., 1.])
+    print(batch_grid, batch_grid.shape)
 
-    transformed_patch = torch.nn.functional.grid_sample(torch.ones(1, 1, 96, 160).double(), affine_grid, align_corners=True, padding_mode='zeros')
+    # inv_transform = torch.inverse(transformation_t)[:, :2]
+    # affine_grid = torch.nn.functional.affine_grid(inv_transform, size=(1, 1, 96, 160), align_corners=True)
+
+    transformed_patch = torch.nn.functional.grid_sample(torch.ones(1, 1, 96, 160).double(), batch_grid, align_corners=True, padding_mode='zeros')
 
     patch_coords = torch.nonzero(transformed_patch)[..., 2:]
+    # print(patch_coords, patch_coords.shape)
 
     xmin = patch_coords[0][1].item()
     ymin = patch_coords[0][0].item()
@@ -200,6 +211,7 @@ if __name__ == '__main__':
 
     for k in range(K):
         transformation_matrix = gen_transformation_matrix(*K_target_position[k])
+        print(transformation_matrix, transformation_matrix.shape)
         bounding_box_placed_patch = get_bb_patch(transformation_matrix)
         patch_in_camera = xyz_from_bb(bounding_box_placed_patch, camera_intrinsic, distortion_coeffs)
         patch_in_victim = (np.linalg.inv(camera_extrinsic) @ [*patch_in_camera, 1])[:3]
