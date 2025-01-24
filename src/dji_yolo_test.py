@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 import cv2
+import os
+import glob
 
 # taken from ultralytics yolo
 def xywh2xyxy(x):
@@ -31,38 +33,48 @@ if __name__ == '__main__':
     model.eval()
 
     # load image from path with cv2
-    img = cv2.imread('misc/dji/images/0000.jpg')
-    cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    # scale image to height = 640
-    # print(img.shape)
-    scale_factor_height = 320 / img.shape[0]
-    scale_factor_width = 640 / img.shape[1]
-    img_r = cv2.resize(img, (640, 320))
+    images_folder = 'misc/dji/images'
+    output_folder = 'misc/dji/bb_predictions'
+    os.makedirs(output_folder, exist_ok=True)
 
-    img_t = torch.tensor(img_r).permute(2, 0, 1).unsqueeze(0).float() / 255.
-    img_t = img_t.requires_grad_(True).to(device)
-    print(img_t.shape)
-    print(img_t.min(), img_t.max())
+    all_boxes = []
 
-    # predict boxes
-    results = model(img_t)[0]  
-    print(results.shape)    # batch_size, num_candidates, boxes + class scores 
-    boxes = xywh2xyxy(results[:, :, :4])
-    print(boxes.shape)
-    scores = results[:, :, 4] * results[0][:, 5] # multiply obj score by person confidence
+    for counter, file in enumerate(sorted(glob.glob(f'{images_folder}/*.jpg'))):
+        img = cv2.imread(file)
+        cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # scale image to height = 640
+        # print(img.shape)
+        scale_factor_height = 320 / img.shape[0]
+        scale_factor_width = 640 / img.shape[1]
+        img_r = cv2.resize(img, (640, 320))
+
+        img_t = torch.tensor(img_r).permute(2, 0, 1).unsqueeze(0).float() / 255.
+        img_t = img_t.requires_grad_(True).to(device)
+        #print(img_t.shape)
+        #print(img_t.min(), img_t.max())
+
+        # predict boxes
+        results = model(img_t)[0]  
+        #print(results.shape)    # batch_size, num_candidates, boxes + class scores 
+        boxes = xywh2xyxy(results[:, :, :4])
+        #print(boxes.shape)
+        scores = results[:, :, 4] * results[0][:, 5] # multiply obj score by person confidence
 
 
-    soft_scores = torch.nn.functional.softmax(scores * SOFTMAX_SCALE)
-    selected_box = torch.bmm(soft_scores.unsqueeze(1), boxes).squeeze(1).detach().cpu().numpy()
-    selected_box = scale_box(selected_box[0], scale_factor_width, scale_factor_height).reshape(1, -1)
+        soft_scores = torch.nn.functional.softmax(scores * SOFTMAX_SCALE)
+        selected_box = torch.bmm(soft_scores.unsqueeze(1), boxes).squeeze(1).detach().cpu().numpy()
+        selected_box = scale_box(selected_box[0], scale_factor_width, scale_factor_height).reshape(1, -1)
 
-    print(selected_box)
+       # print(selected_box)
 
-    # draw box
-    xmin, ymin, xmax, ymax = selected_box[0]
-    cv2.rectangle(img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
-    cv2.imwrite('misc/dji/output_softmax.jpg', img)
-    
+        # draw box
+        xmin, ymin, xmax, ymax = selected_box[0]
+        all_boxes.append([int(xmin), int(ymin), int(xmax), int(ymax)])
+        cv2.rectangle(img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
+        cv2.imwrite(f'{output_folder}/{counter:04d}.jpg', img)
+        
+    print("Saving all boxes...")
+    np.save(f'{output_folder}/all_boxes.npy', np.array(all_boxes))
     # top_scores, top_indices = torch.topk(scores, 5)
     # print(top_scores, top_scores.shape)
     # print(top_indices, top_indices.shape)
