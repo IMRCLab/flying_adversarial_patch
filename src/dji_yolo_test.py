@@ -19,6 +19,8 @@ def scale_box(box, scale_factor_width, scale_factor_height):
     box[3] /= scale_factor_height
     return box
 
+SOFTMAX_SCALE = 20.
+
 
 if __name__ == '__main__':
   
@@ -49,12 +51,23 @@ if __name__ == '__main__':
     print(boxes.shape)
     scores = results[:, :, 4] * results[0][:, 5] # multiply obj score by person confidence
 
-    
-    top_scores, top_indices = torch.topk(scores, 5)
-    print(top_scores, top_scores.shape)
-    print(top_indices, top_indices.shape)
 
-    top_indices = top_indices.squeeze(0)
+    soft_scores = torch.nn.functional.softmax(scores * SOFTMAX_SCALE)
+    selected_box = torch.bmm(soft_scores.unsqueeze(1), boxes).squeeze(1).detach().cpu().numpy()
+    selected_box = scale_box(selected_box[0], scale_factor_width, scale_factor_height).reshape(1, -1)
+
+    print(selected_box)
+
+    # draw box
+    xmin, ymin, xmax, ymax = selected_box[0]
+    cv2.rectangle(img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
+    cv2.imwrite('misc/dji/output_softmax.jpg', img)
+    
+    # top_scores, top_indices = torch.topk(scores, 5)
+    # print(top_scores, top_scores.shape)
+    # print(top_indices, top_indices.shape)
+
+    # top_indices = top_indices.squeeze(0)
 
     # top_box = boxes[0, top_indices[0, 0]].detach().cpu().numpy() # img 0, top candidate
     # print(top_box)
@@ -63,11 +76,11 @@ if __name__ == '__main__':
     # top_boxes = boxes[top_indices[0, 0]].detach().cpu().numpy()
     # print(top_boxes)
 
-    # draw boxes
-    for idx in top_indices:
-        top_box = boxes[0, idx].detach().cpu().numpy()
-        scaled_box = scale_box(top_box, scale_factor_width, scale_factor_height)
-        xmin, ymin, xmax, ymax = scaled_box
-        cv2.rectangle(img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
+    # # draw boxes
+    # for idx in top_indices:
+    #     top_box = boxes[0, idx].detach().cpu().numpy()
+    #     scaled_box = scale_box(top_box, scale_factor_width, scale_factor_height)
+    #     xmin, ymin, xmax, ymax = scaled_box
+    #     cv2.rectangle(img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
 
-    cv2.imwrite('misc/dji/output.jpg', img)
+    # cv2.imwrite('misc/dji/output.jpg', img)
