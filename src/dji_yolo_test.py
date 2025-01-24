@@ -11,6 +11,15 @@ def xywh2xyxy(x):
     y[..., 3] = x[..., 1] + x[..., 3] / 2  # bottom right y
     return y
 
+# scale box to original image scale
+def scale_box(box, scale_factor_width, scale_factor_height):
+    box[0] /= scale_factor_width
+    box[1] /= scale_factor_height
+    box[2] /= scale_factor_width
+    box[3] /= scale_factor_height
+    return box
+
+
 if __name__ == '__main__':
   
   
@@ -34,10 +43,31 @@ if __name__ == '__main__':
     print(img_t.min(), img_t.max())
 
     # predict boxes
-    results = model(img_t)[0]
+    results = model(img_t)[0]  
+    print(results.shape)    # batch_size, num_candidates, boxes + class scores 
     boxes = xywh2xyxy(results[:, :, :4])
-    # print(boxes.grad_fn)
+    print(boxes.shape)
     scores = results[:, :, 4] * results[0][:, 5] # multiply obj score by person confidence
 
     
-    
+    top_scores, top_indices = torch.topk(scores, 5)
+    print(top_scores, top_scores.shape)
+    print(top_indices, top_indices.shape)
+
+    top_indices = top_indices.squeeze(0)
+
+    # top_box = boxes[0, top_indices[0, 0]].detach().cpu().numpy() # img 0, top candidate
+    # print(top_box)
+
+    # select boxes
+    # top_boxes = boxes[top_indices[0, 0]].detach().cpu().numpy()
+    # print(top_boxes)
+
+    # draw boxes
+    for idx in top_indices:
+        top_box = boxes[0, idx].detach().cpu().numpy()
+        scaled_box = scale_box(top_box, scale_factor_width, scale_factor_height)
+        xmin, ymin, xmax, ymax = scaled_box
+        cv2.rectangle(img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
+
+    cv2.imwrite('misc/dji/output.jpg', img)
