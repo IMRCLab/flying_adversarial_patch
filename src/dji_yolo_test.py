@@ -39,22 +39,26 @@ if __name__ == '__main__':
     output_folder = 'misc/dji/bb_predictions'
     os.makedirs(output_folder, exist_ok=True)
 
+    # load images from pickle
+    with open('misc/dji/all_resized_images.pkl', 'rb') as f:
+        images = np.array(pickle.load(f))   # shape: (num_images, 320, 640, 3)
+    
+    # print(images.shape)
+    # permute to (num_images, 3, 320, 640)
+    images = images.transpose(0, 3, 1, 2)
+    print(images.shape)
 
-    all_resized_images = []
-    for counter, file in enumerate(sorted(glob.glob(f'{images_folder}/*.jpg'))):
-        img = cv2.imread(file)
-        cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        # scale image to height = 640
-        # print(img.shape)
-        # scale_factor_height = 320 / img.shape[0]
-        # scale_factor_width = 640 / img.shape[1]
-        img_r = cv2.resize(img, (640, 320))
-        all_resized_images.append(img_r)
+    dataloader = torch.utils.data.DataLoader(images / 255., batch_size=32, shuffle=False)
 
-    all_resized_images = np.array(all_resized_images)
-    # save as pickle
-    with open('misc/dji/all_resized_images.pkl', 'wb') as f:
-        pickle.dump(all_resized_images, f)
+    batch = next(iter(dataloader))
+    print(batch.shape)
+
+    # predict boxes
+    results = model(batch.to(device))[0]
+    print(results.shape) 
+
+
+
 
     # all_boxes = []
 
