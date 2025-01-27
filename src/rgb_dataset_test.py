@@ -54,11 +54,18 @@ def xywh2xyxy(x):
     y[..., 3] = x[..., 1] + x[..., 3] / 2  # bottom right y
     return y
 
+
+def load_feather(sensor_name, path):
+    df_intrinsic = pd.read_feather(path + '/intrinsics.feather')
+    df_extrinsic = pd.read_feather(path + '/egovehicle_SE3_sensor.feather')
+
+    data_intrinsic = df_intrinsic[df_intrinsic['sensor_name'] == sensor_name].to_dict('records')[0]
+    data_extrinsic = df_extrinsic[df_extrinsic['sensor_name'] == sensor_name].to_dict('records')[0]
+
+    return data_intrinsic, data_extrinsic
+
+
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-
-
-df_intrinsic = pd.read_feather('misc/argoverse/0/calibration/intrinsics.feather')
-df_extrinsic = pd.read_feather('misc/argoverse/0/calibration/egovehicle_SE3_sensor.feather')
 
 # load image from path with cv2
 img = cv2.imread('misc/argoverse/0/ring_side_right/315967378977482497.jpg')
@@ -81,10 +88,8 @@ model = torch.hub.load("ultralytics/yolov5", "yolov5n", pretrained=True, autosha
 model.eval()
 # get camera calibration
 
-def get_camera_intrinsic_matrix(sensor_name, df):
+def get_camera_intrinsic_matrix(sensor_name, data):
     # see https://github.com/argoverse/argoverse-api/blob/master/argoverse/utils/calibration.py#L282
-
-    data = df[df['sensor_name'] == sensor_name].to_dict('records')[0]
 
     matrix = np.zeros((3, 3))
     matrix[0, 0] = data['fx_px']
@@ -109,10 +114,8 @@ def quat2rot(q):
     return matrix
 
 
-def get_camera_extrinsic_matrix(sensor_name, df):
+def get_camera_extrinsic_matrix(sensor_name, data):
     # see https://github.com/argoverse/argoverse-api/blob/master/argoverse/utils/calibration.py#L258
-    data = df[df['sensor_name'] == sensor_name].to_dict('records')[0]
-
     egovehicle_t_camera = np.array([data['tx_m'], data['ty_m'], data['tz_m']])
     egovehicle_q_camera = np.array([data['qw'], data['qx'], data['qy'], data['qz']])
 
@@ -127,15 +130,22 @@ def get_camera_extrinsic_matrix(sensor_name, df):
 
     return camera_T_world
     
-def get_camera_calibration(sensor_name, df_intrinsic, df_extrinsic):
-    intrinsic, distortion, img_dim = get_camera_intrinsic_matrix(sensor_name, df_intrinsic)
-    extrinsic = get_camera_extrinsic_matrix(sensor_name, df_extrinsic)
+def get_camera_calibration(sensor_name, path):
+    data_intrinsic, data_extrinsic = load_feather(sensor_name, path)
+    intrinsic, distortion, img_dim = get_camera_intrinsic_matrix(sensor_name, data_intrinsic)
+    extrinsic = get_camera_extrinsic_matrix(sensor_name, data_extrinsic)
 
     return intrinsic, extrinsic, distortion, img_dim
 
 
-intrinsic, extrinsic, distortion, img_dim = get_camera_calibration('ring_side_right', df_intrinsic, df_extrinsic)
+
+
+intrinsic, extrinsic, distortion, img_dim = get_camera_calibration('ring_side_right', 'misc/argoverse/0/calibration')
 print(intrinsic)
+print(extrinsic)
+print(distortion)
+
+
 
 fx = intrinsic[0, 0]
 fy = intrinsic[1, 1]
