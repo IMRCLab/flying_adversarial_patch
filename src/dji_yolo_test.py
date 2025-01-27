@@ -89,15 +89,25 @@ if __name__ == '__main__':
     results = model(batch.to(device))[0]
     print(results.shape) 
 
-    boxes = xywh2xyxy(results[:, :, :4])
-    print(boxes.shape)
-    scores = results[:, :, 4] * results[0][:, 5]
-    print(scores.shape)
+    boxes_batch = xywh2xyxy(results[:, :, :4])
+    print(boxes_batch.shape)
+    scores_batch = results[:, :, 4] * results[:, :, 5]
+    print(scores_batch.shape)
+    print(torch.max(scores_batch, dim=1))
 
     # scores prediction for each box
-    soft_scores_batches = torch.nn.functional.softmax(scores * SOFTMAX_SCALE, dim=1)
+    soft_scores_batches = torch.stack([torch.nn.functional.softmax(score * SOFTMAX_SCALE) for score in scores_batch])
     print(soft_scores_batches.shape)
-    selected_box = torch.bmm(soft_scores_batches.unsqueeze(1), boxes).squeeze(1).detach().cpu().numpy()
+
+    # for i, (score, soft_score) in enumerate(zip(scores, soft_scores_batches)):
+    #     axs[i, 0].plot(score.detach().cpu().numpy())
+    #     axs[i, 1].plot(soft_score.detach().cpu().numpy())
+    # plt.savefig('misc/dji/temp_batch_prediction/scores.jpg')
+
+
+
+    selected_box = torch.stack([torch.bmm(soft_score.unsqueeze(0).unsqueeze(0), all_boxes_p_img.unsqueeze(0)) for soft_score, all_boxes_p_img in zip(soft_scores_batches, boxes_batch)]).detach().cpu().squeeze(1).squeeze(1).numpy()
+    #torch.bmm(soft_scores_batches.unsqueeze(1), boxes).squeeze(1).detach().cpu().numpy()
     print(selected_box.shape)
 
     # # max score prediction
@@ -120,7 +130,8 @@ if __name__ == '__main__':
         #cv2.rectangle(img, (int(max_boxes[counter][0]), int(max_boxes[counter][1]), int(max_boxes[counter][2]), int(max_boxes[counter][3])), (255, 0, 0), 10)
         cv2.imwrite(f'{output_folder}/batch_{counter:04d}.jpg', img)
 
-    
+    # plot scores
+
     for counter, img in enumerate(batch):
         img_t = img.unsqueeze(0).to(device)
         result = model(img_t)[0]
@@ -129,10 +140,19 @@ if __name__ == '__main__':
         # print(boxes.shape)
         scores = result[:, :, 4] * result[0][:, 5]
         # print(scores.shape)
+        print(torch.max(scores), torch.argmax(scores))
 
         soft_scores = torch.nn.functional.softmax(scores * SOFTMAX_SCALE, dim=1)
-        difference = torch.mean((soft_scores - soft_scores_batches[counter])**2)
-        print(difference)
+        print(soft_scores.shape)
+
+        fig, axs = plt.subplots(2, 2)
+        axs[0, 0].plot(scores_batch[counter].detach().cpu().numpy())
+        axs[0, 1].plot(soft_scores_batches[counter].detach().cpu().numpy())
+        axs[1, 0].plot(scores[0].detach().cpu().numpy())
+        axs[1, 1].plot(soft_scores[0].detach().cpu().numpy())
+        plt.savefig(f'misc/dji/temp_batch_prediction/scores_{counter}.jpg')
+        # difference = torch.mean((soft_scores - soft_scores_batches[counter])**2)
+        # print(difference)
         # print(soft_scores.shape)
         selected_box = torch.bmm(soft_scores.unsqueeze(1), boxes).squeeze(1).detach().cpu().numpy()
         # print(selected_box.shape)
@@ -150,7 +170,7 @@ if __name__ == '__main__':
         cv2.rectangle(img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 0, 255), 10)
         cv2.imwrite(f'{output_folder}/single_{counter:04d}.jpg', img)
 
-
+    
 
     # all_boxes = []
 
