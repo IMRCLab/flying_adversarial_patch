@@ -50,6 +50,36 @@ def inverse_norm(val, minimum, maximum):
     #return (maximum - minimum) * (torch.tanh(val) + 1) * 0.5 + minimum
     return (maximum - minimum) * (val + 1) * 0.5 + minimum
 
+
+def get_transformation(sf, tx, ty):
+    translation_vector = torch.stack([tx, ty]) # shape (2, 1)
+    # print(translation_vector.shape)
+    eye = torch.eye(2,2).to(device)
+    scale = eye * sf  # shape (2,2)
+
+    # print(scale.shape)
+
+    transformation_matrix = torch.cat([scale, translation_vector], dim=1)
+    return transformation_matrix
+
+
+def gen_noisy_transformations(batch_size, sf, tx, ty, scale_min=0.0, scale_max=1.8, tx_min=0., tx_max=640., ty_min=0., ty_max=320.):
+    noisy_transformation_matrix = []
+    for i in range(batch_size):
+        sf_n = sf + np.random.normal(0.0, 0.1)
+        tx_n = tx + np.random.normal(0.0, 0.1)
+        ty_n = ty + np.random.normal(0.0, 0.1)
+
+        sf_unnorm = inverse_norm(sf_n, scale_min, scale_max)
+        tx_unnorm = inverse_norm(tx_n, tx_min, tx_max)
+        ty_unnorm = inverse_norm(ty_n, ty_min, ty_max)
+
+        matrix = get_transformation(sf_unnorm, tx_unnorm, ty_unnorm)
+
+        noisy_transformation_matrix.append(matrix)
+    
+    return torch.stack(noisy_transformation_matrix)
+
 if __name__ == '__main__':
   
   
@@ -103,9 +133,9 @@ if __name__ == '__main__':
     dataloader = torch.utils.data.DataLoader(images, batch_size=32, shuffle=True)
 
 
-    scale_factor = torch.tensor([0.1]).to(device).requires_grad_(True)
-    tx = torch.tensor([-0.7]).to(device).requires_grad_(True)
-    ty = torch.tensor([0.3]).to(device).requires_grad_(True)
+    scale_factor = torch.tensor([0.5]).to(device).requires_grad_(True)
+    tx = torch.tensor([0.0]).to(device).requires_grad_(True)
+    ty = torch.tensor([0.0]).to(device).requires_grad_(True)
 
 
     opt = torch.optim.Adam([random_patch, scale_factor, tx, ty], lr=3e-2)
@@ -113,29 +143,24 @@ if __name__ == '__main__':
     for epoch in trange(1000):
         epoch_losses = []
         for _, batch in enumerate(dataloader):
-            sf_unnorm = inverse_norm(scale_factor, scale_min, scale_max)
-            tx_unnorm = inverse_norm(tx, tx_min, tx_max)
-            ty_unnorm = inverse_norm(ty, ty_min, ty_max)
-
-
-
 
             # print(scale_factor, tx, ty)
             # print(sf_unnorm, tx_unnorm, ty_unnorm)
 
-            translation_vector = torch.stack([tx_unnorm, ty_unnorm]) # shape (2, 1)
-            # print(translation_vector.shape)
-            eye = torch.eye(2,2).to(device)
-            scale = eye * sf_unnorm  # shape (2,2)
-
-            # print(scale.shape)
-
-            transformation_matrix = torch.cat([scale, translation_vector], dim=1)
+            # sf_unnorm = inverse_norm(scale_factor, scale_min, scale_max)
+            # tx_unnorm = inverse_norm(tx, tx_min, tx_max)
+            # ty_unnorm = inverse_norm(ty, ty_min, ty_max)
+            
+            # transformation_matrix = get_transformation(sf_unnorm, tx_unnorm, ty_unnorm)
+            # print(transformation_matrix)
             # print(transformation_matrix.shape)
 
-            mod_batch = place_patch(batch.to(device), random_patch.repeat(batch.shape[0], 1, 1, 1), transformation_matrix.repeat(batch.shape[0], 1, 1))
+            noisy_transformation = gen_noisy_transformations(batch.shape[0], scale_factor, tx, ty)
+            # print(noisy_transformation.shape)
+
+            mod_batch = place_patch(batch.to(device), random_patch.repeat(batch.shape[0], 1, 1, 1), noisy_transformation)
             # print(mod_batch.shape)
-            #plt.imsave('misc/dji/temp_batch.jpg', mod_batch[0].permute(1, 2, 0).detach().cpu().numpy())
+            # plt.imsave('misc/dji/temp_batch.jpg', mod_batch[0].permute(1, 2, 0).detach().cpu().numpy())
 
             results = model(mod_batch)[0]
             boxes_batch = xywh2xyxy(results[:, :, :4])
@@ -156,12 +181,11 @@ if __name__ == '__main__':
             scale_factor.data.clamp_(-1., 1.0)
             tx.data.clamp_(-1., 1.)
             ty.data.clamp_(-1., 1.)
-
         if epoch % 10 == 0:
             print(f'Epoch {epoch}, loss: {np.mean(epoch_losses)}')
             print(f'sf: {scale_factor}, tx: {tx}, ty: {ty}')
             # place patch in one image and save
-            mod_img = place_patch(batch[0].unsqueeze(0).to(device), random_patch, transformation_matrix.unsqueeze(0), random_perspection=False)
+            mod_img = place_patch(batch[0].unsqueeze(0).to(device), random_patch, noisy_transformation[0].unsqueeze(0), random_perspection=False)
             # print(mod_img.shape)
             # draw rectangle of target box
             mod_img = mod_img[0].permute(1, 2, 0).detach().cpu().numpy()
@@ -173,6 +197,5 @@ if __name__ == '__main__':
             cv2.rectangle(mod_img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (255, 0, 0), 10)
             cv2.imwrite(f'misc/dji/temp_batch_prediction/patch_{epoch}.jpg', mod_img)
         # plt.imsave(f'misc/dji/temp_batch_prediction/patch_{epoch}.jpg', mod_img[0].permute(1, 2, 0).detach().cpu().numpy())
-
     np.save('misc/dji/optim_patch.npy', random_patch.detach().cpu().numpy())
     np.save('misc/dji/optim_transformation.npy', np.array([scale_factor.detach().cpu().numpy(), tx.detach().cpu().numpy(), ty.detach().cpu().numpy()]))
