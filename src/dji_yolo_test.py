@@ -8,7 +8,7 @@ import pickle
 
 import matplotlib.pyplot as plt
 
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from patch_placement import place_patch
 
@@ -61,8 +61,11 @@ if __name__ == '__main__':
     output_folder = 'misc/dji/temp_batch_prediction'
     os.makedirs(output_folder, exist_ok=True)
 
-    random_patch = torch.rand(1, 3, 80, 80).to(device)
-    print(random_patch.min(), random_patch.max())
+    random_patch = torch.rand(1, 3, 80, 80).to(device).requires_grad_(True)
+    # print(random_patch.min(), random_patch.max())
+
+
+    target_box = torch.tensor([480, 125, 619, 241]).to(device)
 
 
     # create_pkl(images_folder)
@@ -74,7 +77,7 @@ if __name__ == '__main__':
         images = np.array(pickle.load(f))   # shape: (num_images, 3, 320, 640)
     
     # print(images.shape)
-    print(images[0].min(), images[0].max())
+    # print(images[0].min(), images[0].max())
     # # permute to (num_images, 3, 320, 640)
     # images = images.transpose(0, 3, 1, 2)
     # print(images.shape)
@@ -85,63 +88,125 @@ if __name__ == '__main__':
     # # plot image with matplotlib
     # plt.imsave('misc/dji/temp.jpg', images[0].permute(1, 2, 0).detach().cpu().numpy())
 
-    dataloader = torch.utils.data.DataLoader(images, batch_size=8, shuffle=True)
-
-    batch = next(iter(dataloader))
-    print(batch.shape)
-
-    transformation_matrix = torch.tensor([[1., 0., 60.], [0., 1., 120.]]).to(device).repeat(batch.shape[0], 1, 1)
-    print(transformation_matrix.shape)
-
-    mod_batch = place_patch(batch.to(device), random_patch.repeat(batch.shape[0], 1, 1, 1), transformation_matrix, random_perspection=False)
-    for i, mod_img in enumerate(mod_batch):
-        plt.imsave(f'misc/dji/temp_batch_prediction/mod_{i}.jpg', mod_img.permute(1, 2, 0).detach().cpu().numpy())
+    dataloader = torch.utils.data.DataLoader(images, batch_size=32, shuffle=True)
 
 
-    # predict boxes
-    results = model(batch.to(device))[0]
-    print(results.shape) 
-
-    boxes_batch = xywh2xyxy(results[:, :, :4])
-    print(boxes_batch.shape)
-    scores_batch = results[:, :, 4] * results[:, :, 5]
-    print(scores_batch.shape)
-    print(torch.max(scores_batch, dim=1))
-
-    # scores prediction for each box
-    soft_scores_batches = torch.stack([torch.nn.functional.softmax(score * SOFTMAX_SCALE) for score in scores_batch])
-    print(soft_scores_batches.shape)
-
-    # for i, (score, soft_score) in enumerate(zip(scores, soft_scores_batches)):
-    #     axs[i, 0].plot(score.detach().cpu().numpy())
-    #     axs[i, 1].plot(soft_score.detach().cpu().numpy())
-    # plt.savefig('misc/dji/temp_batch_prediction/scores.jpg')
+    scale_factor = torch.tensor([1.]).to(device).requires_grad_(True)
+    tx = torch.tensor([60.]).to(device).requires_grad_(True)
+    ty = torch.tensor([120.]).to(device).requires_grad_(True)
 
 
+    opt = torch.optim.Adam([random_patch, scale_factor, tx, ty], lr=3e-2)
+    
+    for epoch in trange(200):
+        epoch_losses = []
+        for _, batch in enumerate(dataloader):
+            translation_vector = torch.stack([tx, ty]) # shape (2, 1)
+            # print(translation_vector.shape)
+            eye = torch.eye(2,2).to(device)
+            scale = eye * scale_factor  # shape (2,2)
 
-    selected_box = torch.stack([torch.bmm(soft_score.unsqueeze(0).unsqueeze(0), all_boxes_p_img.unsqueeze(0)) for soft_score, all_boxes_p_img in zip(soft_scores_batches, boxes_batch)]).detach().cpu().squeeze(1).squeeze(1).numpy()
-    #torch.bmm(soft_scores_batches.unsqueeze(1), boxes).squeeze(1).detach().cpu().numpy()
-    print(selected_box.shape)
+            # print(scale.shape)
 
-    # # max score prediction
-    # max_scores_idx = torch.argmax(scores, dim=1).detach().cpu().numpy()
-    # max_boxes = np.array([boxes[i][idx].detach().cpu().numpy() for i, idx in enumerate(max_scores_idx)])
-    # print(max_boxes.shape)
+            transformation_matrix = torch.cat([scale, translation_vector], dim=1)
+            # print(transformation_matrix.shape)
 
-    for counter, img in enumerate(batch):
-        img = img.permute(1, 2, 0).detach().cpu().numpy()
-        img = (img * 255).astype(np.uint8)
-        print(img.shape)
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        # scale image to height = 640
+            mod_batch = place_patch(batch.to(device), random_patch.repeat(batch.shape[0], 1, 1, 1), transformation_matrix.repeat(batch.shape[0], 1, 1))
+            # print(mod_batch.shape)
+
+            results = model(mod_batch)[0]
+            boxes_batch = xywh2xyxy(results[:, :, :4])
+            scores_batch = results[:, :, 4] * results[:, :, 5]
+            soft_scores_batches = torch.nn.functional.softmax(scores_batch * SOFTMAX_SCALE, dim=1)
+            
+            selected_box = torch.bmm(soft_scores_batches.unsqueeze(1), boxes_batch).squeeze(1)
+            # print(selected_box.shape)
+            
+            loss = torch.mean((selected_box - target_box.repeat(batch.shape[0], 1, 1, 1, 1))**2)
+            epoch_losses.append(loss.detach().cpu().item())
+
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+            random_patch.data.clamp_(0, 1)
+            scale_factor.data.clamp_(0., 2.3)
+
+        if epoch % 10 == 0:
+            print(f'Epoch {epoch}, loss: {np.mean(epoch_losses)}')
+            print(f'sf: {scale_factor}, tx: {tx}, ty: {ty}')
+            # place patch in one image and save
+            mod_img = place_patch(batch[0].unsqueeze(0).to(device), random_patch, transformation_matrix.unsqueeze(0), random_perspection=False)
+            # print(mod_img.shape)
+            # draw rectangle of target box
+            mod_img = mod_img[0].permute(1, 2, 0).detach().cpu().numpy()
+            mod_img = (mod_img * 255).astype(np.uint8)
+            mod_img = cv2.cvtColor(mod_img, cv2.COLOR_RGB2BGR)
+            xmin, ymin, xmax, ymax = target_box.detach().cpu().numpy()
+            cv2.rectangle(mod_img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
+            xmin, ymin, xmax, ymax = selected_box[0].detach().cpu().numpy()
+            cv2.rectangle(mod_img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (255, 0, 0), 10)
+            cv2.imwrite(f'misc/dji/temp_batch_prediction/patch_{epoch}.jpg', mod_img)
+
+        # plt.imsave(f'misc/dji/temp_batch_prediction/patch_{epoch}.jpg', mod_img[0].permute(1, 2, 0).detach().cpu().numpy())
+
+    np.save('misc/dji/optim_patch.npy', random_patch.detach().cpu().numpy())
+    np.save('misc/dji/optim_transformation.npy', np.array([scale_factor.detach().cpu().numpy(), tx.detach().cpu().numpy(), ty.detach().cpu().numpy()]))
+            
+    # batch = next(iter(dataloader))
+    # print(batch.shape)
+
+    # transformation_matrix = torch.tensor([[1., 0., 60.], [0., 1., 120.]]).to(device).repeat(batch.shape[0], 1, 1)
+    # print(transformation_matrix.shape)
+
+    # mod_batch = place_patch(batch.to(device), random_patch.repeat(batch.shape[0], 1, 1, 1), transformation_matrix, random_perspection=False)
+    # for i, mod_img in enumerate(mod_batch):
+    #     plt.imsave(f'misc/dji/temp_batch_prediction/mod_{i}.jpg', mod_img.permute(1, 2, 0).detach().cpu().numpy())
+
+    # # predict boxes
+    # results = model(batch.to(device))[0]
+    # # print(results.shape) 
+
+    # boxes_batch = xywh2xyxy(results[:, :, :4])
+    # # print(boxes_batch.shape)
+    # scores_batch = results[:, :, 4] * results[:, :, 5]
+    # # print(scores_batch.shape)
+    # # print(torch.max(scores_batch, dim=1))
+
+    # # scores prediction for each box
+    # soft_scores_batches = torch.stack([torch.nn.functional.softmax(score * SOFTMAX_SCALE) for score in scores_batch])
+    # # print(soft_scores_batches.shape)
+
+    # # for i, (score, soft_score) in enumerate(zip(scores, soft_scores_batches)):
+    # #     axs[i, 0].plot(score.detach().cpu().numpy())
+    # #     axs[i, 1].plot(soft_score.detach().cpu().numpy())
+    # # plt.savefig('misc/dji/temp_batch_prediction/scores.jpg')
 
 
-        # draw box
-        #scaled_box = scale_box(selected_box[counter], scale_factor_width, scale_factor_height)
-        xmin, ymin, xmax, ymax = selected_box[counter]
-        cv2.rectangle(img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
-        #cv2.rectangle(img, (int(max_boxes[counter][0]), int(max_boxes[counter][1]), int(max_boxes[counter][2]), int(max_boxes[counter][3])), (255, 0, 0), 10)
-        cv2.imwrite(f'{output_folder}/batch_{counter:04d}.jpg', img)
+
+    # selected_box = torch.stack([torch.bmm(soft_score.unsqueeze(0).unsqueeze(0), all_boxes_p_img.unsqueeze(0)) for soft_score, all_boxes_p_img in zip(soft_scores_batches, boxes_batch)]).detach().cpu().squeeze(1).squeeze(1).numpy()
+    # #torch.bmm(soft_scores_batches.unsqueeze(1), boxes).squeeze(1).detach().cpu().numpy()
+    # print(selected_box)
+
+    # # # max score prediction
+    # # max_scores_idx = torch.argmax(scores, dim=1).detach().cpu().numpy()
+    # # max_boxes = np.array([boxes[i][idx].detach().cpu().numpy() for i, idx in enumerate(max_scores_idx)])
+    # # print(max_boxes.shape)
+
+    # for counter, img in enumerate(batch):
+    #     img = img.permute(1, 2, 0).detach().cpu().numpy()
+    #     img = (img * 255).astype(np.uint8)
+    #     print(img.shape)
+    #     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    #     # scale image to height = 640
+
+
+    #     # draw box
+    #     #scaled_box = scale_box(selected_box[counter], scale_factor_width, scale_factor_height)
+    #     xmin, ymin, xmax, ymax = selected_box[counter]
+    #     cv2.rectangle(img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
+    #     #cv2.rectangle(img, (int(max_boxes[counter][0]), int(max_boxes[counter][1]), int(max_boxes[counter][2]), int(max_boxes[counter][3])), (255, 0, 0), 10)
+    #     cv2.imwrite(f'{output_folder}/batch_{counter:04d}.jpg', img)
 
     # # plot scores
 
