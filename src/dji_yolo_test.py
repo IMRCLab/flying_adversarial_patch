@@ -13,6 +13,16 @@ from tqdm import tqdm, trange
 
 from patch_placement import place_patch
 
+import rowan
+
+# rotation from opencv frame to our coordinate frame
+# opencv: x -> right, y -> down, z -> forward
+# ours: x -> forward, y -> left, z -> up
+rotation_cv2_imrc = rowan.from_euler(np.pi, np.pi/2, np.pi/2, convention='xyz')
+T_imrc = torch.zeros((4,4))
+T_imrc[:3, :3] = torch.from_numpy(rowan.to_matrix(rotation_cv2_imrc))
+T_imrc[3, 3] = 1
+
 # taken from ultralytics yolo
 def xywh2xyxy(x):
     y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
@@ -82,7 +92,12 @@ def gen_noisy_transformations(batch_size, sf, tx, ty, scale_min=0.0, scale_max=1
     return torch.stack(noisy_transformation_matrix)
 
 
-def xyz_from_bb(bb, camera_intrinsic, radius =0.5):
+def rotate_vector(T_mat, vector):
+    device = vector.device
+    return (T_mat.to(device) @ torch.cat((vector, torch.ones(1, device=device))))[:3]
+
+
+def xyz_from_bb(bb, camera_intrinsic, radius =0.4):
         device = bb.device
         fx = camera_intrinsic[0, 0]
         fy = camera_intrinsic[1, 1]
@@ -118,10 +133,11 @@ def xyz_from_bb(bb, camera_intrinsic, radius =0.5):
         ac = (a1+a2)/2
 
         # get the position
-        xyz = distance*ac/torch.linalg.norm(ac)
+        xyz_cv = distance*ac/torch.linalg.norm(ac)
+        xyz_imrc = rotate_vector(T_imrc, xyz_cv)
 
         #new_xyz = (torch.linalg.inv(camera_extrinsic_tens) @ torch.cat((xyz, torch.ones(1))))[:3]
-        return xyz
+        return xyz_imrc
 
 if __name__ == '__main__':
   
@@ -158,9 +174,9 @@ if __name__ == '__main__':
     
 
     #target_box = torch.tensor([480, 125, 619, 241]).to(device)
-    target_position = torch.tensor([0.0, 0.0, 1.5]).to(device) # predicting person 1.5 meters away from camera
+    target_position = torch.tensor([1.5, 0.0, 0.0]).to(device) # predicting person 1.5 meters away from camera
     print(target_position.shape)
-    target_in_image = camera_intrinsic @ target_position
+    target_in_image = camera_intrinsic @ rotate_vector(torch.inverse(T_imrc), target_position)
     target_x = int(target_in_image[0] / target_in_image[2])
     target_y = int(target_in_image[1] / target_in_image[2])
     print(target_x, target_y)
@@ -193,13 +209,13 @@ if __name__ == '__main__':
     ty = torch.FloatTensor(1,).uniform_(-1., 1.).to(device).requires_grad_(True)
 
 
-    opt = torch.optim.Adam([patch, scale_factor, tx, ty], lr=3e-3)
+    opt = torch.optim.Adam([patch, scale_factor, tx, ty], lr=1e-3)
 
     best_patch = None
     best_position = None
     best_loss = np.inf
     
-    for epoch in trange(1000):
+    for epoch in trange(20):
         epoch_losses = []
         for _, batch in enumerate(dataloader):
 
