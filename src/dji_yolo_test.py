@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import os
 import glob
+import yaml
 
 import pickle
 
@@ -80,6 +81,48 @@ def gen_noisy_transformations(batch_size, sf, tx, ty, scale_min=0.0, scale_max=1
     
     return torch.stack(noisy_transformation_matrix)
 
+
+def xyz_from_bb(bb, camera_intrinsic, radius =0.5):
+        device = bb.device
+        fx = camera_intrinsic[0, 0]
+        fy = camera_intrinsic[1, 1]
+        ox = camera_intrinsic[0, 2]
+        oy = camera_intrinsic[1, 2]
+
+        # printd('bounding box', bb.grad_fn)
+        center = (bb[1] + bb[3])/2
+
+        # get rays for pixels
+        a1 = torch.ones(3, device=device)
+        a1[0] = (bb[0]-ox)/fx
+        a1[1] = (center-oy)/fy
+
+        a2 = torch.ones(3, device=device)
+        a2[0] = (bb[2]-ox)/fx
+        a2[1] = (center-oy)/fy
+
+        # printd('a1', a1.grad_fn)
+
+        # normalize rays
+        a1_norm = torch.linalg.norm(a1)
+        a2_norm = torch.linalg.norm(a2)
+
+        # printd('a1 nnorm', a1_norm.grad_fn)
+
+        # get the distance    
+        distance = (np.sqrt(2)*radius)/(torch.sqrt(1-torch.dot(a1,a2)/(a1_norm*a2_norm)))
+
+        # printd('distance', distance.grad_fn)
+
+        # get central ray
+        ac = (a1+a2)/2
+
+        # get the position
+        xyz = distance*ac/torch.linalg.norm(ac)
+
+        #new_xyz = (torch.linalg.inv(camera_extrinsic_tens) @ torch.cat((xyz, torch.ones(1))))[:3]
+        return xyz
+
 if __name__ == '__main__':
   
   
@@ -106,9 +149,21 @@ if __name__ == '__main__':
     random_patch = torch.rand(1, 3, 80, 80).to(device).requires_grad_(True)
     # print(random_patch.min(), random_patch.max())
 
+    # load camera intrinsic from yaml
+    with open('misc/dji/calibration/calibration_scaled.yaml', 'r') as f:
+        config = yaml.safe_load(f)
 
-    target_box = torch.tensor([480, 125, 619, 241]).to(device)
+    camera_intrinsic = torch.tensor(config['camera_matrix']).to(device)
+    print(camera_intrinsic)
+    
 
+    #target_box = torch.tensor([480, 125, 619, 241]).to(device)
+    target_position = torch.tensor([0.0, 0.0, 1.5]).to(device) # predicting person 1.5 meters away from camera
+    print(target_position.shape)
+    target_in_image = camera_intrinsic @ target_position
+    target_x = int(target_in_image[0] / target_in_image[2])
+    target_y = int(target_in_image[1] / target_in_image[2])
+    print(target_x, target_y)
 
     # create_pkl(images_folder)
     #plt.imsave('misc/dji/temp_load.jpg', all_images[0].transpose(1, 2, 0))
@@ -132,13 +187,13 @@ if __name__ == '__main__':
 
     dataloader = torch.utils.data.DataLoader(images, batch_size=32, shuffle=True)
 
+    # init random scale_factor, tx, ty in [-1, 1]
+    scale_factor = torch.FloatTensor(1,).uniform_(-1., 1.).to(device).requires_grad_(True)
+    tx = torch.FloatTensor(1,).uniform_(-1., 1.).to(device).requires_grad_(True)
+    ty = torch.FloatTensor(1,).uniform_(-1., 1.).to(device).requires_grad_(True)
 
-    scale_factor = torch.tensor([0.5]).to(device).requires_grad_(True)
-    tx = torch.tensor([0.0]).to(device).requires_grad_(True)
-    ty = torch.tensor([0.0]).to(device).requires_grad_(True)
 
-
-    opt = torch.optim.Adam([random_patch, scale_factor, tx, ty], lr=3e-2)
+    opt = torch.optim.Adam([random_patch, scale_factor, tx, ty], lr=3e-3)
     
     for epoch in trange(1000):
         epoch_losses = []
@@ -167,10 +222,15 @@ if __name__ == '__main__':
             scores_batch = results[:, :, 4] * results[:, :, 5]
             soft_scores_batches = torch.nn.functional.softmax(scores_batch * SOFTMAX_SCALE, dim=1)
             
-            selected_box = torch.bmm(soft_scores_batches.unsqueeze(1), boxes_batch).squeeze(1)
+            selected_boxes = torch.bmm(soft_scores_batches.unsqueeze(1), boxes_batch).squeeze(1)
             # print(selected_box.shape)
-            
-            loss = torch.mean((selected_box - target_box.repeat(batch.shape[0], 1, 1, 1, 1))**2)
+
+            # get xyz from bounding box
+            xyz = torch.stack([xyz_from_bb(box, camera_intrinsic) for box in selected_boxes])
+            # print(xyz.shape)
+            # print(xyz[0])
+
+            loss = torch.mean((xyz - target_position.repeat(batch.shape[0], 1))**2)
             epoch_losses.append(loss.detach().cpu().item())
 
             opt.zero_grad()
@@ -178,7 +238,7 @@ if __name__ == '__main__':
             opt.step()
 
             random_patch.data.clamp_(0, 1)
-            scale_factor.data.clamp_(-1., 1.0)
+            scale_factor.data.clamp_(-1., 1.)
             tx.data.clamp_(-1., 1.)
             ty.data.clamp_(-1., 1.)
         if epoch % 10 == 0:
@@ -191,10 +251,12 @@ if __name__ == '__main__':
             mod_img = mod_img[0].permute(1, 2, 0).detach().cpu().numpy()
             mod_img = (mod_img * 255).astype(np.uint8)
             mod_img = cv2.cvtColor(mod_img, cv2.COLOR_RGB2BGR)
-            xmin, ymin, xmax, ymax = target_box.detach().cpu().numpy()
-            cv2.rectangle(mod_img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
-            xmin, ymin, xmax, ymax = selected_box[0].detach().cpu().numpy()
-            cv2.rectangle(mod_img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (255, 0, 0), 10)
+            # xmin, ymin, xmax, ymax = target_box.detach().cpu().numpy()
+            # cv2.rectangle(mod_img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (0, 255, 0), 10)
+            xmin, ymin, xmax, ymax = selected_boxes[0].detach().cpu().numpy()
+            cv2.rectangle(mod_img, (int(xmin), int(ymin)), (int(xmax), int(ymax)), (255, 0, 0), 3)
+            cv2.drawMarker(mod_img, (target_x, target_y), (0, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=5, thickness=3)
+            
             cv2.imwrite(f'misc/dji/temp_batch_prediction/patch_{epoch}.jpg', mod_img)
         # plt.imsave(f'misc/dji/temp_batch_prediction/patch_{epoch}.jpg', mod_img[0].permute(1, 2, 0).detach().cpu().numpy())
     np.save('misc/dji/optim_patch.npy', random_patch.detach().cpu().numpy())
