@@ -146,7 +146,7 @@ if __name__ == '__main__':
     output_folder = 'misc/dji/temp_batch_prediction'
     os.makedirs(output_folder, exist_ok=True)
 
-    random_patch = torch.rand(1, 3, 80, 80).to(device).requires_grad_(True)
+    patch = torch.rand(1, 3, 80, 80).to(device).requires_grad_(True)
     # print(random_patch.min(), random_patch.max())
 
     # load camera intrinsic from yaml
@@ -193,7 +193,11 @@ if __name__ == '__main__':
     ty = torch.FloatTensor(1,).uniform_(-1., 1.).to(device).requires_grad_(True)
 
 
-    opt = torch.optim.Adam([random_patch, scale_factor, tx, ty], lr=3e-3)
+    opt = torch.optim.Adam([patch, scale_factor, tx, ty], lr=3e-3)
+
+    best_patch = None
+    best_position = None
+    best_loss = np.inf
     
     for epoch in trange(1000):
         epoch_losses = []
@@ -213,7 +217,7 @@ if __name__ == '__main__':
             noisy_transformation = gen_noisy_transformations(batch.shape[0], scale_factor, tx, ty)
             # print(noisy_transformation.shape)
 
-            mod_batch = place_patch(batch.to(device), random_patch.repeat(batch.shape[0], 1, 1, 1), noisy_transformation)
+            mod_batch = place_patch(batch.to(device), patch.repeat(batch.shape[0], 1, 1, 1), noisy_transformation)
             # print(mod_batch.shape)
             # plt.imsave('misc/dji/temp_batch.jpg', mod_batch[0].permute(1, 2, 0).detach().cpu().numpy())
 
@@ -237,15 +241,23 @@ if __name__ == '__main__':
             loss.backward()
             opt.step()
 
-            random_patch.data.clamp_(0, 1)
+            patch.data.clamp_(0, 1.)
             scale_factor.data.clamp_(-1., 1.)
             tx.data.clamp_(-1., 1.)
             ty.data.clamp_(-1., 1.)
+        
+        if np.mean(epoch_losses) < best_loss:
+            best_patch = patch.detach().cpu().numpy()
+            best_position = np.hstack([scale_factor.detach().cpu().item(), tx.detach().cpu().item(), ty.detach().cpu().item()])
+            #print(best_position, best_position.shape)
+            best_loss = np.mean(epoch_losses)
+
+
         if epoch % 10 == 0:
             print(f'Epoch {epoch}, loss: {np.mean(epoch_losses)}')
             print(f'sf: {scale_factor}, tx: {tx}, ty: {ty}')
             # place patch in one image and save
-            mod_img = place_patch(batch[0].unsqueeze(0).to(device), random_patch, noisy_transformation[0].unsqueeze(0), random_perspection=False)
+            mod_img = place_patch(batch[0].unsqueeze(0).to(device), patch, noisy_transformation[0].unsqueeze(0), random_perspection=False)
             # print(mod_img.shape)
             # draw rectangle of target box
             mod_img = mod_img[0].permute(1, 2, 0).detach().cpu().numpy()
@@ -259,5 +271,5 @@ if __name__ == '__main__':
             
             cv2.imwrite(f'misc/dji/temp_batch_prediction/patch_{epoch}.jpg', mod_img)
         # plt.imsave(f'misc/dji/temp_batch_prediction/patch_{epoch}.jpg', mod_img[0].permute(1, 2, 0).detach().cpu().numpy())
-    np.save('misc/dji/optim_patch.npy', random_patch.detach().cpu().numpy())
-    np.save('misc/dji/optim_transformation.npy', np.array([scale_factor.detach().cpu().numpy(), tx.detach().cpu().numpy(), ty.detach().cpu().numpy()]))
+    np.save('misc/dji/optim_patch.npy', best_patch)
+    np.save('misc/dji/optim_transformation.npy', best_position)
