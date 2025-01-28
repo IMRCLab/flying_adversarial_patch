@@ -146,6 +146,7 @@ def xyz_from_bb(bb, camera_intrinsic, radius =0.4):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('results', default='results/dji/test', type=str, help='Path to save results')
+    parser.add_argument('--seed', default=2562, type=int, help='Seed for random number generator')
     parser.add_argument('--epochs', default=1000, type=int, help='Number of epochs')
     parser.add_argument('--lr', default=1e-3, type=float, help='Learning rate')
     parser.add_argument('--patch_size_width', default=80, type=int, help='Width of patch')
@@ -153,7 +154,8 @@ if __name__ == '__main__':
     parser.add_argument('--verbose', default=False, action='store_true')
     args = parser.parse_args()
 
-    train_config = {'path': args.results, 
+    train_config = {'path': args.results,
+                    'seed': args.seed, 
                     'epochs': args.epochs, 
                     'lr': args.lr, 
                     'patch_size_width': args.patch_size_width, 
@@ -162,6 +164,9 @@ if __name__ == '__main__':
     
     with open(f'{args.results}/train_config.yaml', 'w') as f:
         yaml.dump(train_config, f)
+
+    torch.manual_seed(train_config['seed'])
+    np.random.seed(train_config['seed'])
   
   
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -269,7 +274,7 @@ if __name__ == '__main__':
             ty.data.clamp_(-1., 1.)
         
         if np.mean(epoch_losses) < best_loss:
-            best_patch = patch.detach().cpu().numpy()
+            best_patch = patch.clone().detach().cpu().numpy()
             unnorm_sf = inverse_norm(scale_factor.clone().detach(), scale_min, scale_max).cpu().item()
             unnorm_tx = inverse_norm(tx.clone().detach(), tx_min, tx_max).cpu().item()
             unnorm_ty = inverse_norm(ty.clone().detach(), ty_min, ty_max).cpu().item()
