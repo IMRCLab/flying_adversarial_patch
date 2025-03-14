@@ -2,7 +2,6 @@
 robots:
   cf18:
     enabled: true
-
     uri: radio://0/80/2M/E7E7E7E712    ## CHANGED!
     initial_position: [0.0, 0.0, 0.0] #z=0.15
     type: cf21  # see robot_types
@@ -36,9 +35,9 @@ robots:
       #     frequency: 10
       #     vars: ["frontnet.targetx", "frontnet.targety", "frontnet.targetz", "frontnet.targetyaw"]
   cf4:
-    enabled: true
+    enabled: false
     uri: radio://0/80/2M/E7E7E7E704
-    initial_position: [0.0, -1.0, 0.3]
+    initial_position: [0.5, -1.0, 0.0]
     type: cf21_betafpv  # see robot_types
     firmware_params:
       stabilizer:
@@ -56,6 +55,20 @@ robots:
     #      frequency: 1
     #      vars: ["acc.x", "acc.y", "acc.z"]
 # Definition of the various robot types
+  cf2:
+    enabled: false
+    uri: radio://0/80/2M/E7E7E7E702
+    initial_position: [0.0, -1.0, 0.3]
+    type: cf21_betafpv  # see robot_types
+    firmware_params:
+      stabilizer:
+        controller: 6 # 4 -> sjc controller, 6-> lee controller
+      locSrv:
+        extPosStdDev: 1e-3
+        # extQuatStdDev: 1.0e-1
+        extRPStdDev: 0.1
+        extYStdDev: 0.01
+
 robot_types:
   cf21:
     motion_capture:
@@ -70,11 +83,11 @@ robot_types:
     # firmware_params:
     #   kalman:
     #     pNAcc_xy: 1.0 # default 0.5
-    #firmware_logging:
+    # firmware_logging:
     #   enabled: true
     #   default_topics:
     #   pose:
-    #     frequency: 1 # Hz
+    #     frequency: 10 # Hz
     #   custom_topics:
     #    topic_name3: 
     #      frequency: 1
@@ -83,7 +96,7 @@ robot_types:
     motion_capture:
       enabled: true
       # only if enabled; see motion_capture.yaml
-      marker: default_single_marker  # mocap_deck  # 
+      marker: default_single_marker  #   #
       dynamics: default
     big_quad: false
     battery:
