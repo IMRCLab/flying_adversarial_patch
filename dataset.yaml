@@ -1,4 +1,4 @@
-path: 'results/yolo_dataset'
+path: '/home/piha/flying_adversarial_patch/results/yolo_dataset'
 # +x is distance
 # +y is left
 # +z is top
@@ -24,7 +24,7 @@ scale_min: 0.2
 scale_max: 0.7
 patch: 
   mode: 'random'  # face, white, random
-  size: [80, 80] # patch size in [height, width]
+  size: [45, 80] # patch size in [height, width]
   path: 'src/custom_patches/custom_patch_96x160.npy' # if mode == 'face' set a path, otherwise path is ignored
 mode: "joint" # fixed, joint, split, hybrid
 quantized: false

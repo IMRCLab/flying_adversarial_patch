@@ -82,7 +82,7 @@ def get_best_target_pos(patch, patch_path, dataset, model, device):
 
 def train(idx_start=0, idx_end=100, model='frontnet'):
     for i in range(idx_start, idx_end):
-        with open('dataset.yaml') as f:
+        with open('/home/piha/flying_adversarial_patch/dataset.yaml') as f:
             settings = yaml.load(f, Loader=yaml.FullLoader)
         patch_size = settings['patch']['size']
         path = Path(f"{settings['path']}/{patch_size[0]}x{patch_size[1]}/{i}/")
@@ -91,25 +91,32 @@ def train(idx_start=0, idx_end=100, model='frontnet'):
         targets = [values for _, values in settings['targets'].items()]
         targets = np.array(targets, dtype=float).T
 
-        number_targets = np.random.randint(1, 4)
+        # number_targets = np.random.randint(1, 4)
 
-        random_target_x = np.random.uniform(0,2,number_targets)
-        random_target_y = np.random.uniform(-1,1,number_targets,)
-        random_target_z = np.random.uniform(-0.5,0.5,number_targets,)
+        random_target_x = np.random.uniform(0.,1.5, 1)
+        random_target_y = np.random.uniform(-1,1, 1)
+        random_target_z = np.random.uniform(-0.5,0.5, 1)
+        
+        random_target_yaw = np.random.uniform(-0.3, 0.3, 1)
 
         # overwrite settings
         settings['path'] = str(path)
         settings['targets']['x'] =  random_target_x.tolist()
         settings['targets']['y'] = random_target_y.tolist()
         settings['targets']['z'] = random_target_z.tolist()
+        settings['targets']['yaw'] = random_target_yaw.tolist()
         settings['patch']['size'] = patch_size
 
         os.makedirs(path, exist_ok = True)
         with open(path / 'settings.yaml', 'w') as f:
             yaml.dump(settings, f)
 
-        command = shlex.split(f"sbatch dataset.sh {str(path / 'settings.yaml')} {model}")
+        # command = shlex.split(f"sbatch dataset.sh {str(path / 'settings.yaml')} {model}")
+        # subprocess.run(command)
+
+        command = shlex.split(f"python /home/piha/flying_adversarial_patch/src/attacks.py --file {str(path / 'settings.yaml')} --model {model}")
         subprocess.run(command)
+
         del settings
 
 def read_data(path, idx_start=0, idx_end=100, model='frontnet', idx=-1):
@@ -203,6 +210,9 @@ if __name__=="__main__":
     parser.add_argument('--out', type=str, default='dataset.pickle')
     parser.add_argument('--model', type=str, default='frontnet', choices=['frontnet', 'yolov5'])
     args = parser.parse_args()
+
+    np.random.seed(0)
+    torch.manual_seed(0)
 
 
     if len(args.idx) < 2:

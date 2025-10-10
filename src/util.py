@@ -1,7 +1,7 @@
 import torch
 import sys
 
-sys.path.insert(0,'pulp-frontnet/PyTorch/')
+sys.path.insert(0,'/home/piha/flying_adversarial_patch/pulp-frontnet/PyTorch/')
 from Frontnet.Frontnet import FrontnetModel
 
 from Frontnet.DataProcessor import DataProcessor
@@ -20,8 +20,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 # import random
 
-import onnx
-from onnx import numpy_helper
+# import onnx
+# from onnx import numpy_helper
 
 import glob
 
@@ -207,7 +207,7 @@ def load_dataset(path, batch_size = 32, shuffle = False, drop_last = True, num_w
     # if training data should be extended by our custom dataset, set IMRC to True
     if IMRC:
         import pickle
-        with open("misc/IMRC_images.pickle", "rb") as f:
+        with open("/home/piha/flying_adversarial_patch/misc/IMRC_images.pickle", "rb") as f:
             imrc_data = pickle.load(f)
 
         imrc_images = imrc_data['x']

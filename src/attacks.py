@@ -15,6 +15,9 @@ from pathlib import Path
 
 from time import time
 
+def normalize_yaw_t(yaw):
+    return torch.atan2(torch.sin(yaw), torch.cos(yaw))
+
 def get_transformation(sf, tx, ty):
     translation_vector = torch.stack([tx, ty]).unsqueeze(0) #torch.zeros([1], device=tx.device)]).unsqueeze(0)
 
@@ -85,9 +88,24 @@ def gen_noisy_transformations(batch_size, sf, tx, ty, scale_min=0.3, scale_max=0
 
 def targeted_attack_joint(dataset, patch, model, positions, assignment, targets, lr=3e-2, epochs=10, path="eval/", model_name='frontnet', prob_weight=5, scale_min=0.3, scale_max=0.5, target_offsets = [[0,0,0]], position_offsets=[[0,0,0]], stlc_weights=[1.0]):
     patch_t = patch.clone().requires_grad_(True)
-    positions_t = positions.clone().requires_grad_(True)
+    # positions_t = positions.clone().requires_grad_(True)
 
-    opt = torch.optim.Adam([patch_t, positions_t], lr=lr)
+    # opt = torch.optim.Adam([patch_t, positions_t], lr=lr)
+
+    # only optimize tx, ty
+    sf = positions[:, :, 0, :].clone()
+    tx = positions[:, :, 1, :].clone().requires_grad_(True)
+    ty = positions[:, :, 2, :].clone().requires_grad_(True)
+
+    # print("Initial position inside joint attack: ", positions_t)
+
+    #opt = torch.optim.Adam([patch_t, positions_t], lr=lr)     # eps 1e-4
+    # opt = torch.optim.Adam([patch_t], lr=lr)
+    # print(positions_t.shape)
+    opt = torch.optim.Adam([patch_t, tx, ty], lr=lr)
+
+    positions_t = torch.stack([sf, tx, ty], dim=2) # shape: (num_targets, num_patches, 3, 1)
+    # print(positions_t.shape)
 
     losses = []
 
@@ -162,26 +180,35 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
                             # target_losses.append(torch.mean(all_l2))
                             # prepare shapes for MSE loss
                             # TODO: improve readbility!
-                            pred = torch.stack([x, y, z])
+                            pred = torch.stack([x, y, z, phi])
                             pred = pred.squeeze(2).mT
                         else:
                             pred = model(mod_img)
 
                         # only target x,y and z which were previously chosen, otherwise keep x/y/z to prediction
                         mask = torch.isnan(target)
-                        target = torch.where(mask, torch.tensor(0., dtype=torch.float32), target + target_offset)
+                        target = torch.where(mask, torch.tensor(0., dtype=torch.float32), target)
                         # old
                         # target_batch = (pred * mask) + target
                         # target_losses.append(mse_loss(target_batch, pred))
 
+                        # print("pred shape:", pred.shape)
+
                         # new
-                        pred_v = pred.view(len(patch_t[active_patches]), len(batch), 3) # size : num_patches, batch_size, 3
+                        pred_v = pred.view(len(patch_t[active_patches]), len(batch), 4) # size : num_patches, batch_size, 3
                         target_batch = (pred_v * mask) + target
+
+                        yaw_v = pred_v[:, :, 3]
 
                         # target_losses.append(mse_loss(target_batch, pred))
 
-                        #target_losses.append(torch.min(mse_loss(target_batch, pred_v)))
-                        target_loss += weight * torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch, pred_v)]) # calc mse for each of the predictions of each patch
+                        # #target_losses.append(torch.min(mse_loss(target_batch, pred_v)))
+                        # target_loss += weight * torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch, pred_v)]) # calc mse for each of the predictions of each patch
+
+                        mse_losses = torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch[:, :, :3], pred_v[:, :, :3])]) # calc mse for each of the predictions of each patch
+                        angular_losses = 1 - torch.cos(normalize_yaw_t(yaw_v) - normalize_yaw_t(target_batch[:, :, 3]))
+
+                        target_loss += weight * (mse_losses + angular_losses.mean(dim=1)) # mean over batch, sum over offsets
 
                     
                     stats[active_patches, target_idx] += target_loss.detach().cpu().numpy()
@@ -450,7 +477,7 @@ def calc_eval_loss(dataset, patch, transformation_matrix, model, target, model_n
                 # target_losses.append(torch.mean(all_l2))
                 # prepare shapes for MSE loss
                 # TODO: improve readbility!
-                pred = torch.stack([x, y, z])
+                pred = torch.stack([x, y, z, phi])
                 pred = pred.squeeze(2).mT
             else:
                 pred = model(mod_img)
@@ -459,7 +486,26 @@ def calc_eval_loss(dataset, patch, transformation_matrix, model, target, model_n
             #target_batch = torch.where(torch.isnan(target_batch), pred, target_batch)
             target_batch = (pred * mask) + target
             
-            loss = mse_loss(target_batch, pred)
+            # loss = mse_loss(target_batch, pred)
+
+
+            yaw_v = pred[:, 3]
+
+            # target_losses.append(mse_loss(target_batch, pred))
+
+            # #target_losses.append(torch.min(mse_loss(target_batch, pred_v)))
+            # target_loss += weight * torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch, pred_v)]) # calc mse for each of the predictions of each patch
+
+            mse_losses = torch.stack([mse_loss(tar, pre) for tar, pre in zip(target_batch[:, :3], pred[:, :3])]) # calc mse for each of the predictions of each patch
+            angular_losses = 1 - torch.cos(normalize_yaw_t(yaw_v) - normalize_yaw_t(target_batch[:, 3]))
+
+            loss = torch.mean(mse_losses + angular_losses.mean(dim=0)) # mean over batch, sum over offsets
+
+            # mse_losses = torch.stack([mse_loss(tar, pre) for tar, pre in zip(target_batch, pred)]) # calc mse for each of the predictions of each patch
+            # angular_losses = 1 - torch.cos(normalize_yaw_t(phi.view(len(patch_t[active_patches]), len(batch))) - normalize_yaw_t(torch.zeros_like(phi).view(len(patch_t[active_patches]), len(batch))))
+
+            # loss += weight * (mse_losses + angular_losses.mean(dim=1)) # mean over batch, sum over offsets
+
             actual_loss += loss.clone().detach()
         
         actual_loss /= len(dataset)
@@ -578,24 +624,24 @@ if __name__=="__main__":
         targets = targets.unsqueeze(0)
 
     from util import load_dataset
-    dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
+    dataset_path = '/home/piha/flying_adversarial_patch/pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
 
     if args.model == 'frontnet':
         print("Loading quantized network? ", quantized)
         if not quantized:
             # load full-precision network
             from util import load_model
-            model_path = 'pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
+            model_path = '/home/piha/flying_adversarial_patch/pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
             model_config = '160x32'
             model = load_model(path=model_path, device=device, config=model_config)
         else:
             # load quantized network
             from util import load_quantized
-            model_path = 'misc/Frontnet.onnx'
+            model_path = '/home/piha/flying_adversarial_patch/misc/Frontnet.onnx'
             model = load_quantized(path=model_path, device=device)
     
     if args.model == 'yolov5':
-        model = YOLOBox()
+        model = YOLOBox(cam_config="/home/piha/flying_adversarial_patch/misc/camera_calibration/calibration.yaml")
     
     
     
@@ -655,8 +701,8 @@ if __name__=="__main__":
     train_losses = []
     test_losses = []
 
-    anytime_losses = []
-    anytime_losses.append([0., np.inf])
+    # anytime_losses = []
+    # anytime_losses.append([0., np.inf])
 
     stats_all = []
     stats_p_all = []
@@ -679,11 +725,11 @@ if __name__=="__main__":
     # print(A)
 
 
-    try:
-        anytime_loss = np.load(settings['path'] + '/anytime_loss.npy')
-    except FileNotFoundError:
-        anytime_loss = np.array([[time(), np.inf]])
-    anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, model_name=args.model, quantized=quantized))
+    # try:
+    #     anytime_loss = np.load(settings['path'] + '/anytime_loss.npy')
+    # except FileNotFoundError:
+    #     anytime_loss = np.array([[time(), np.inf]])
+    # anytime_losses.append(calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_pos_vectors, scale_min, scale_max, model_name=args.model, quantized=quantized))
     # print("Anytime losses: ", anytime_losses)
     
     for train_iteration in trange(num_hl_iter):
@@ -755,7 +801,7 @@ if __name__=="__main__":
         train_losses.append(torch.stack(train_loss))
         test_losses.append(torch.stack(test_loss))
         # print(torch.stack(test_loss).shape)
-        anytime_losses.append([time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()])
+        # anytime_losses.append([time()-time_start, torch.mean(torch.stack(test_loss)).detach().cpu().item()])
         # print("Anytime loss: ", anytime_losses)
 
 
@@ -842,7 +888,7 @@ if __name__=="__main__":
         np.save(path / 'last_patch.npy', optimization_patches[-1].cpu().numpy())
         # last_pos = np.array([x.cpu().numpy() for x in norm_optimized_vecs[-1]])
         # np.save(path / 'position_norm.npy', last_pos)
-        np.save(path / 'anytime_losses.npy', anytime_losses)
+        # np.save(path / 'anytime_losses.npy', anytime_losses)
 
     # if gen_detailed:
     #     boxplot_data = []
