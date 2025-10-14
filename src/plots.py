@@ -16,7 +16,7 @@ from attacks import get_transformation
 from collections import defaultdict
 
 def img_placed_patch(targets, patch, scale_norm, tx_norm, ty_norm, p_idx, img_idx=0, random=False, imrc=True):
-    dataset_path = 'pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
+    dataset_path = '/home/piha/flying_adversarial_patch/pulp-frontnet/PyTorch/Data/160x96StrangersTestset.pickle'
     train_set = load_dataset(path=dataset_path, batch_size=1, shuffle=True, drop_last=False, num_workers=0, IMRC=imrc)
 
     if random:

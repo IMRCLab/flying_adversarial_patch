@@ -634,6 +634,7 @@ if __name__=="__main__":
             model_path = '/home/piha/flying_adversarial_patch/pulp-frontnet/PyTorch/Models/Frontnet160x32.pt'
             model_config = '160x32'
             model = load_model(path=model_path, device=device, config=model_config)
+            model.eval()
         else:
             # load quantized network
             from util import load_quantized
@@ -910,12 +911,23 @@ if __name__=="__main__":
             for target_idx, target in enumerate(targets):
                 if args.model == 'frontnet':
                     pred_base = model(test_batch.float() * 255.)
-                    pred_base = torch.stack(pred_base[:3]).squeeze(2).mT
+                    pred_base = torch.stack(pred_base).squeeze(2).mT
                 else:
                     pred_base = model(test_batch.float() * 255.)
                 target_batch = target.repeat(len(test_batch), 1)
                 target_batch = torch.where(torch.isnan(target_batch), pred_base, target_batch)
-                loss_base = torch.tensor([mse_loss(target_batch[i], pred_base[i]) for i in range(len(test_batch))])
+                # # loss_base = torch.tensor([mse_loss(target_batch[i], pred_base[i]) for i in range(len(test_batch))])
+
+                pred_v = pred_base.view(len(test_batch), 4) # size : num_patches, batch_size, 3
+                # target_batch = (pred_v * mask) + target
+
+                yaw_v = pred_v[:, 3]
+
+                mse_losses = torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch[:, :3], pred_v[:, :3])]) # calc mse for each of the predictions of each patch
+                angular_losses = 1 - torch.cos(normalize_yaw_t(yaw_v) - normalize_yaw_t(target_batch[:, 3]))
+
+                loss_base = torch.stack([mse_losses[i] + angular_losses[i].mean(dim=0) for i in range(len(mse_losses))])
+
 
                 loss_start_patch_best = None
                 loss_start_patch_best_value = np.inf
@@ -930,12 +942,23 @@ if __name__=="__main__":
                     mod_img.clamp_(0., 255.)
                     if args.model == 'frontnet':
                         pred_start_patch = model(mod_img.float())
-                        pred_start_patch = torch.stack(pred_start_patch[:3]).squeeze(2).mT
+                        pred_start_patch = torch.stack(pred_start_patch).squeeze(2).mT
                     else:
                         pred_start_patch = model(mod_img.float())
                     target_batch = target.repeat(len(test_batch), 1)
                     target_batch = torch.where(torch.isnan(target_batch), pred_start_patch, target_batch)
-                    loss_start_patch = torch.tensor([mse_loss(target_batch[i], pred_start_patch[i]) for i in range(len(test_batch))])
+                    # loss_start_patch = torch.tensor([mse_loss(target_batch[i], pred_start_patch[i]) for i in range(len(test_batch))])
+
+                    pred_v = pred_start_patch.view(len(test_batch), 4) # size : num_patches, batch_size, 3
+                    # target_batch = (pred_v * mask) + target
+
+                    yaw_v = pred_v[:, 3]
+
+                    mse_losses = torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch[:, :3], pred_v[:, :3])]) # calc mse for each of the predictions of each patch
+                    angular_losses = 1 - torch.cos(normalize_yaw_t(yaw_v) - normalize_yaw_t(target_batch[:, 3]))
+
+                    loss_start_patch = torch.stack([mse_losses[i] + angular_losses[i].mean(dim=0) for i in range(len(mse_losses))])
+
                     if torch.sum(loss_start_patch) < loss_start_patch_best_value:
                         loss_start_patch_best_value = torch.sum(loss_start_patch)
                         loss_start_patch_best = loss_start_patch
@@ -945,12 +968,22 @@ if __name__=="__main__":
                     mod_img.clamp_(0., 255.)
                     if args.model == 'frontnet':
                         pred_opt_patch = model(mod_img.float())
-                        pred_opt_patch = torch.stack(pred_opt_patch[:3]).squeeze(2).mT
+                        pred_opt_patch = torch.stack(pred_opt_patch).squeeze(2).mT
                     else:
                         pred_opt_patch = model(mod_img.float())
                     target_batch = target.repeat(len(test_batch), 1)
                     target_batch = torch.where(torch.isnan(target_batch), pred_opt_patch, target_batch)
-                    loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
+                    # loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
+
+                    pred_v = pred_opt_patch.view(len(test_batch), 4) # size : num_patches, batch_size, 3
+                    # target_batch = (pred_v * mask) + target
+
+                    yaw_v = pred_v[:, 3]
+
+                    mse_losses = torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch[:, :3], pred_v[:, :3])]) # calc mse for each of the predictions of each patch
+                    angular_losses = 1 - torch.cos(normalize_yaw_t(yaw_v) - normalize_yaw_t(target_batch[:, 3]))
+
+                    loss_opt_patch = torch.stack([mse_losses[i] + angular_losses[i].mean(dim=0) for i in range(len(mse_losses))])
                     if torch.sum(loss_opt_patch) < loss_opt_patch_best_value:
                         loss_opt_patch_best_value = torch.sum(loss_opt_patch)
                         loss_opt_patch_best = loss_opt_patch
