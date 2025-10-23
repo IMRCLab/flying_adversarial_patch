@@ -94,15 +94,32 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
 
     # only optimize tx, ty
     sf = positions[:, :, 0, :].clone()
-    tx = positions[:, :, 1, :].clone().requires_grad_(True)
-    ty = positions[:, :, 2, :].clone().requires_grad_(True)
+    if model_name == "frontnet":
+        tx = positions[:, :, 1, :].clone().requires_grad_(True)
+        ty = positions[:, :, 2, :].clone().requires_grad_(True)
+    elif model_name == "yolov5":
+        tx = positions[:, :, 1, :].clone()
+        ty = positions[:, :, 2, :].clone()
+    else:
+        print("Unknown model for joint attack!", model_name)
+        return
+
+    # print("Initial positions: ", positions)
+
+    # print("Initial scale factors inside joint attack: ", sf)
+    # print("Initial tx inside joint attack: ", tx)
+    # print("Initial ty inside joint attack: ", ty)
 
     # print("Initial position inside joint attack: ", positions_t)
 
     #opt = torch.optim.Adam([patch_t, positions_t], lr=lr)     # eps 1e-4
     # opt = torch.optim.Adam([patch_t], lr=lr)
     # print(positions_t.shape)
-    opt = torch.optim.Adam([patch_t, tx, ty], lr=lr)
+
+    if model_name == "frontnet":
+        opt = torch.optim.Adam([patch_t, tx, ty], lr=lr)
+    elif model_name == "yolov5":
+        opt = torch.optim.Adam([patch_t], lr=lr)
 
     positions_t = torch.stack([sf, tx, ty], dim=2) # shape: (num_targets, num_patches, 3, 1)
     # print(positions_t.shape)
@@ -182,33 +199,34 @@ def targeted_attack_joint(dataset, patch, model, positions, assignment, targets,
                             # TODO: improve readbility!
                             pred = torch.stack([x, y, z, phi])
                             pred = pred.squeeze(2).mT
+                            # only target x,y and z which were previously chosen, otherwise keep x/y/z to prediction
+                            mask = torch.isnan(target)
+                            target = torch.where(mask, torch.tensor(0., dtype=torch.float32), target)
+                            # old
+                            # target_batch = (pred * mask) + target
+                            # target_losses.append(mse_loss(target_batch, pred))
+
+                            # print("pred shape:", pred.shape)
+
+                            # new
+                            pred_v = pred.view(len(patch_t[active_patches]), len(batch), 4) # size : num_patches, batch_size, 3
+                            target_batch = (pred_v * mask) + target
+
+                            yaw_v = pred_v[:, :, 3]
+
+                            # target_losses.append(mse_loss(target_batch, pred))
+
+                            # #target_losses.append(torch.min(mse_loss(target_batch, pred_v)))
+                            # target_loss += weight * torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch, pred_v)]) # calc mse for each of the predictions of each patch
+
+                            mse_losses = torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch[:, :, :3], pred_v[:, :, :3])]) # calc mse for each of the predictions of each patch
+                            angular_losses = 1 - torch.cos(normalize_yaw_t(yaw_v) - normalize_yaw_t(target_batch[:, :, 3]))
+
+                            target_loss += weight * (mse_losses + angular_losses.mean(dim=1)) # mean over batch, sum over offsets
                         else:
                             pred = model(mod_img)
 
-                        # only target x,y and z which were previously chosen, otherwise keep x/y/z to prediction
-                        mask = torch.isnan(target)
-                        target = torch.where(mask, torch.tensor(0., dtype=torch.float32), target)
-                        # old
-                        # target_batch = (pred * mask) + target
-                        # target_losses.append(mse_loss(target_batch, pred))
-
-                        # print("pred shape:", pred.shape)
-
-                        # new
-                        pred_v = pred.view(len(patch_t[active_patches]), len(batch), 4) # size : num_patches, batch_size, 3
-                        target_batch = (pred_v * mask) + target
-
-                        yaw_v = pred_v[:, :, 3]
-
-                        # target_losses.append(mse_loss(target_batch, pred))
-
-                        # #target_losses.append(torch.min(mse_loss(target_batch, pred_v)))
-                        # target_loss += weight * torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch, pred_v)]) # calc mse for each of the predictions of each patch
-
-                        mse_losses = torch.stack([mse_loss(tar, pred) for tar, pred in zip(target_batch[:, :, :3], pred_v[:, :, :3])]) # calc mse for each of the predictions of each patch
-                        angular_losses = 1 - torch.cos(normalize_yaw_t(yaw_v) - normalize_yaw_t(target_batch[:, :, 3]))
-
-                        target_loss += weight * (mse_losses + angular_losses.mean(dim=1)) # mean over batch, sum over offsets
+                        
 
                     
                     stats[active_patches, target_idx] += target_loss.detach().cpu().numpy()
@@ -538,7 +556,7 @@ def calc_anytime_loss(time_start, test_set, patch, targets, model, optimization_
             for patch_idx in range(len(patch)):
                 scale_norm, tx_norm, ty_norm = norm_transformation(*optimization_pos_vectors[-1][target_idx][patch_idx], scale_min, scale_max)
                 transformation_matrix = get_transformation(scale_norm, tx_norm, ty_norm).to(patch.device)
-
+# requires_grad_(False)
                 test_losses_per_patch.append(calc_eval_loss(test_set, patch[patch_idx:patch_idx+1], transformation_matrix, model, target, model_name=model_name, quantized=quantized))
             # only store the best loss per target
             test_loss.append(torch.min(torch.as_tensor(test_losses_per_patch)))
@@ -611,6 +629,8 @@ if __name__=="__main__":
     # settings['targets']['x'] = [t[0].item() for t in targets]
     # settings['targets']['y'] = [t[1].item() for t in targets]
     # settings['targets']['z'] = [t[2].item() for t in targets]
+
+    print("Targets: ", targets)
 
     os.makedirs(path, exist_ok = True)
     with open(path / f'settings.yaml', 'w') as f:
