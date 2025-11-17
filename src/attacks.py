@@ -998,7 +998,14 @@ if __name__=="__main__":
                     pred_base = model(test_batch.float() * 255.)
                     pred_base = torch.stack(pred_base).squeeze(2).mT
                 else:
-                    pred_base = model(test_batch.float() * 255.)
+                    test_batch = torch.nn.functional.interpolate(test_batch, size=(320, 640), mode='bilinear', align_corners=False)
+                    # gray to rgb
+                    test_batch_rgb = test_batch.repeat_interleave(3, dim=1)
+                    pred_base = model(test_batch_rgb).squeeze(1)
+                    pred_base[:, [0, 2]] *= (160. / 640.)
+                    pred_base[:, [1, 3]] *= (96. / 320.)
+                    pred_base = model.cam.batch_xyz_from_boxes(pred_base)
+                    
                 target_batch = target.repeat(len(test_batch), 1)
                 target_batch = torch.where(torch.isnan(target_batch), pred_base, target_batch)
                 # # loss_base = torch.tensor([mse_loss(target_batch[i], pred_base[i]) for i in range(len(test_batch))])
@@ -1029,7 +1036,14 @@ if __name__=="__main__":
                         pred_start_patch = model(mod_img.float())
                         pred_start_patch = torch.stack(pred_start_patch).squeeze(2).mT
                     else:
-                        pred_start_patch = model(mod_img.float())
+                        mod_img = torch.nn.functional.interpolate(mod_img, size=(320, 640), mode='bilinear', align_corners=False)
+                        # gray to rgb
+                        mod_img_rgb = mod_img.repeat_interleave(3, dim=1)
+                        pred_start_patch = model(mod_img_rgb).squeeze(1)
+                        pred_start_patch[:, [0, 2]] *= (160. / 640.)
+                        pred_start_patch[:, [1, 3]] *= (96. / 320.)
+                        pred_start_patch = model.cam.batch_xyz_from_boxes(pred_start_patch)
+
                     target_batch = target.repeat(len(test_batch), 1)
                     target_batch = torch.where(torch.isnan(target_batch), pred_start_patch, target_batch)
                     # loss_start_patch = torch.tensor([mse_loss(target_batch[i], pred_start_patch[i]) for i in range(len(test_batch))])
@@ -1055,7 +1069,14 @@ if __name__=="__main__":
                         pred_opt_patch = model(mod_img.float())
                         pred_opt_patch = torch.stack(pred_opt_patch).squeeze(2).mT
                     else:
-                        pred_opt_patch = model(mod_img.float())
+                        mod_img = torch.nn.functional.interpolate(mod_img, size=(320, 640), mode='bilinear', align_corners=False)
+                        # gray to rgb
+                        mod_img_rgb = mod_img.repeat_interleave(3, dim=1)
+                        pred_opt_patch = model(mod_img_rgb).squeeze(1)
+                        pred_opt_patch[:, [0, 2]] *= (160. / 640.)
+                        pred_opt_patch[:, [1, 3]] *= (96. / 320.)
+                        pred_opt_patch = model.cam.batch_xyz_from_boxes(pred_opt_patch)
+                        
                     target_batch = target.repeat(len(test_batch), 1)
                     target_batch = torch.where(torch.isnan(target_batch), pred_opt_patch, target_batch)
                     # loss_opt_patch = torch.tensor([mse_loss(target_batch[i], pred_opt_patch[i]) for i in range(len(test_batch))])
